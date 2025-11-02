@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sched.h>
 #include <string>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
@@ -13,9 +14,11 @@ class Debugger
 private:
   pid_t m_pid;
 
+  // 设置默认 ptrace 调试选项
   bool set_default_ptrace_options(pid_t pid);
 
-  bool ptrace_wrapper(int request, pid_t pid, void *address, void *data);
+  // ptrace 包装
+  bool ptrace_wrapper(int request, pid_t pid, void *address=nullptr, void *data=nullptr);
 
 public:
   Debugger(){};
@@ -26,7 +29,7 @@ public:
   // 附加
   bool attach(pid_t pid);
 
-  // 分离调试器
+  // 分离
   bool detach();
 
   // 单步步入
@@ -37,8 +40,12 @@ public:
 
   // 执行
   bool run();
+
+  // 获取目标进程的所有线程
+  std::vector<pid_t> get_thread_ids(pid_t pid);
 };
 
+// launch 方法的参数处理类
 class LaunchInfo
 {
   // 存储
