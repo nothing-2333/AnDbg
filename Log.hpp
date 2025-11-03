@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstring>
 #include <string>
 #include <vector>
+#include <sstream> 
 
 
 enum LogLevel
@@ -27,13 +29,34 @@ private:
   Log(const Log&) = delete;
   Log& operator=(const Log&) = delete;
 
-  void exit();
-  void print();
-
 public:
   static Log* get_instance();
 
-  void add(LogLevel level, std::string content, bool is_exit=false);
+  void add(LogLevel level, std::string content);
+
+  void print();
 
   ~Log();
 };
+
+static std::string format_log(std::string content, const char* file, int line)
+{
+    const char* filename = file;
+    const char* slash = strrchr(file, '/');
+    if (slash) filename = slash + 1;
+    
+    std::ostringstream oss;
+    oss << "[" << filename << ":" << line << "] " << content;
+    return oss.str();
+}
+
+#define LOG(level, content) \
+  Log::get_instance()->add(level, content)
+
+// 带文件名和行号的版本
+#define LOG_P(level, content) \
+    LOG(level, format_log(content, __FILE__, __LINE__))
+
+#define LOG_DEBUG(content) LOG_P(LogLevel::DEBUG, content)
+#define LOG_WARNING(content) LOG_P(LogLevel::WARNING, content)
+#define LOG_ERROR(content) LOG_P(LogLevel::ERROR, content)

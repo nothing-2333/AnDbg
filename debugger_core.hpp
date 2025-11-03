@@ -3,16 +3,18 @@
 #include <sched.h>
 #include <string>
 #include <sys/ptrace.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
 class LaunchInfo;
 
-class Debugger
+class DebuggerCore
 {
 private:
   pid_t m_pid;
+  std::vector<pid_t> m_tids;
 
   // 设置默认 ptrace 调试选项
   bool set_default_ptrace_options(pid_t pid);
@@ -20,8 +22,14 @@ private:
   // ptrace 包装
   bool ptrace_wrapper(int request, pid_t pid, void *address=nullptr, void *data=nullptr);
 
+  // waitpid 包装
+  bool waitpid_wrapper(pid_t pid, int* status, int __options);
+
+  // 解析 elf 文件
+
+
 public:
-  Debugger(){};
+  DebuggerCore();
 
   // 启动
   bool launch(LaunchInfo& launch_info);
@@ -33,13 +41,35 @@ public:
   bool detach();
 
   // 单步步入
-  bool step_into();
+  bool step_into(pid_t tid = -1);
 
   // 单步步过
-  bool step_over();
+  bool step_over(pid_t tid = -1);
 
-  // 执行
+  // 执行(直到断点或结束)
   bool run();
+
+  // 设置断点
+  bool set_breakpoint();
+
+  // 移除断点
+  bool remove_breakpoint();
+
+  // 读取内存
+  bool read_memory();
+
+  // 写入内存
+  bool write_memory();
+
+  // 读取寄存器
+  bool read_register();
+
+  // 写入寄存器
+  bool write_register();
+
+  // 注入 so
+
+  // 获取相关内存布局
 
   // 获取目标进程的所有线程
   std::vector<pid_t> get_thread_ids(pid_t pid);

@@ -12,14 +12,18 @@
 #include "Log.hpp"
 
 
-bool Debugger::launch(LaunchInfo& launch_info)
+DebuggerCore::DebuggerCore()
 {
-  Log* log = Log::get_instance();
+  m_pid = -1;
+  m_tids.clear();
+}
 
+bool DebuggerCore::launch(LaunchInfo& launch_info)
+{
   pid_t pid = fork();
   if (pid == -1) 
   {
-    log->add(LogLevel::ERROR, std::string("fork 失败: ") + strerror(errno), true);
+    LOG_ERROR(std::string("fork 失败: ") + strerror(errno));
     return false;
   }
   // 子进程
@@ -36,38 +40,37 @@ bool Debugger::launch(LaunchInfo& launch_info)
       execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
     }
 
-    log->add(LogLevel::ERROR, std::string("execve 失败: ") + strerror(errno), true);
+    LOG_ERROR(std::string("execve 失败: ") + strerror(errno));
     return false;
   }
   // 父进程
   else 
   {
-    // 保存子进程 pid
-    m_pid = pid;
     // 等待进程停止
     int status;
-    int wpid = waitpid(pid, &status, 0);
-    if (wpid == -1)
-    {
-      log->add(LogLevel::ERROR, std::string("waitpid 失败: ") + strerror(errno), true);
-      return false;
-    }
+    if (!waitpid_wrapper(pid, &status, 0)) return false;
       
     if (WIFSTOPPED(status)) 
     {        
       // 设置跟踪选项
-      return set_default_ptrace_options(pid);
+      if (set_default_ptrace_options(pid))
+      {
+        // 保存
+        m_pid = pid;
+        m_tids = { pid };
+        return true;
+      }
+      else return false;
     }
     return false;
   } 
 }
 
-bool Debugger::attach(pid_t pid)
+bool DebuggerCore::attach(pid_t pid)
 {
   auto tids = get_thread_ids(pid);
   if (tids.empty()) return false;
 
-  Log* log = Log::get_instance();
   std::vector<pid_t> attached_tids;
 
   for (pid_t tid : tids)
@@ -76,37 +79,117 @@ bool Debugger::attach(pid_t pid)
     {
       // 等待线程停止
       int status;
-      int wpid = waitpid(tid, &status, __WALL);
-      if (wpid == -1) 
-      {
-        log->add(LogLevel::WARNING, "等待线程 " + std::to_string(tid) + " 停止失败: " + strerror(errno));
-        continue;
-      }
+      if (!waitpid_wrapper(tid, &status, __WALL)) continue;
 
       if (WIFSTOPPED(status))
       {
         if (set_default_ptrace_options(tid))
         {
           attached_tids.push_back(tid);
-          log->add(LogLevel::DEBUG, "成功附加到线程 " + std::to_string(tid));
+          LOG_DEBUG("成功附加到线程 " + std::to_string(tid));
         }
-        else  
-          log->add(LogLevel::WARNING, "设置线程 " + std::to_string(tid) + " 的 ptrace 选项失败");
       }
-      else  
-        log->add(LogLevel::WARNING, "线程 " + std::to_string(tid) + " 未按预期停止");
     }
     else 
-      log->add(LogLevel::WARNING, "附加到线程 " + std::to_string(tid) + " 失败");
+      LOG_WARNING("附加到线程 " + std::to_string(tid) + " 失败");
   }
 
-  return !attached_tids.empty();
+  // 有一个附加成功就返回成功
+  if (!attached_tids.empty()) 
+  {
+    // 保存
+    m_pid = pid;
+    m_tids = attached_tids;
+    return true;
+  }
+  else return false;
 }
 
-bool Debugger::ptrace_wrapper(int request, pid_t pid, void *address, void *data)
+bool DebuggerCore::detach()
+{
+  LOG_DEBUG("开始分离调试器, PID: " + std::to_string(m_pid) + ", 线程数: " + std::to_string(m_tids.size()));
+
+  bool all_success = true;
+  int success_count = 0;
+
+  for (pid_t tid : m_tids)
+  {
+    if (ptrace_wrapper(PTRACE_DETACH, tid, nullptr, (void*)0))
+      success_count++;
+    else  
+    {
+      LOG_WARNING("分离线程 " + std::to_string(tid) + " 失败");
+      all_success = false;
+    }
+  }
+
+  if (all_success)
+  {
+    LOG_DEBUG("成功分离所有线程");
+    m_pid = -1;
+    m_tids.clear();
+  }
+  else 
+    LOG_WARNING("部分线程分离失败, 成功: " + std::to_string(success_count) + "/" + std::to_string(m_tids.size()));
+
+  return all_success;
+}
+
+bool DebuggerCore::step_into(pid_t tid)
+{
+  if (m_pid == -1) 
+  {
+    LOG_ERROR("没有被调试的程序");
+    return false;
+  }
+
+  // 默认运行主线程
+  if (tid == -1) tid = m_pid;
+
+  if (ptrace_wrapper(PTRACE_SINGLESTEP, tid, nullptr, nullptr))
+  {
+    int status;
+    if (waitpid_wrapper(tid, &status, __WALL))
+    {
+      if (WIFSTOPPED(status))
+      {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+bool DebuggerCore::step_over(pid_t tid)
+{
+
+}
+
+bool DebuggerCore::run()
+{
+  if (m_tids.empty()) 
+  {
+    LOG_ERROR("没有被调试的进程");
+    return false;
+  }
+
+  bool success = false;
+
+  for (pid_t tid : m_tids) 
+  {
+    if (!ptrace_wrapper(PTRACE_CONT, tid))
+      LOG_WARNING("继续线程 " + std::to_string(tid) + " 失败");
+    else success = true;
+  }
+
+  return success;
+
+}
+
+bool DebuggerCore::ptrace_wrapper(int request, pid_t pid, void *address, void *data)
 {
   long int ret;
-  Log* log = Log::get_instance();
 
   if (request == PTRACE_GETREGSET || request == PTRACE_SETREGSET)
     ret = ptrace(static_cast<__ptrace_request>(request), static_cast<::pid_t>(pid), *(unsigned int *)address, data);
@@ -115,17 +198,28 @@ bool Debugger::ptrace_wrapper(int request, pid_t pid, void *address, void *data)
 
   if (ret == -1) 
   {
-    log->add(LogLevel::WARNING, std::string("ptrace 失败, request: ") + std::to_string(request));
+    LOG_ERROR(std::string("ptrace 失败, request: ") + std::to_string(request));
     return false;
   }
   else  
   {
-    log->add(LogLevel::DEBUG, std::string("ptrace 成功, request: ") + std::to_string(request));
+    LOG_DEBUG(std::string("ptrace 成功, request: ") + std::to_string(request));
     return true;
   }
 }
 
-bool Debugger::set_default_ptrace_options(pid_t pid)
+bool DebuggerCore::waitpid_wrapper(pid_t pid, int* status, int __options)
+{
+  int wpid = waitpid(pid, status, __options);
+  if (wpid != pid) 
+  {
+    LOG_ERROR("等待线程 " + std::to_string(pid) + " 停止失败: " + strerror(errno));
+    return false;
+  }
+  return true;
+}
+
+bool DebuggerCore::set_default_ptrace_options(pid_t pid)
 {
   long ptrace_options = 0;
   // 跟踪进程退出事件: 被调试进程退出时会暂停, 调试器可获取返回码, 信号等
@@ -144,7 +238,7 @@ bool Debugger::set_default_ptrace_options(pid_t pid)
   return ptrace_wrapper(PTRACE_SETOPTIONS, pid, nullptr, (void*)ptrace_options);
 }
 
-std::vector<pid_t> Debugger::get_thread_ids(pid_t pid)
+std::vector<pid_t> DebuggerCore::get_thread_ids(pid_t pid)
 {
   std::vector<pid_t> tids;
   std::string task_path = "/proc/" + std::to_string(pid) + "/task";

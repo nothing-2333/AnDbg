@@ -12,17 +12,9 @@ Log* Log::get_instance()
   return instance;
 }
 
-void Log::add(LogLevel level, std::string content, bool is_exit)
+void Log::add(LogLevel level, std::string content)
 {
   messages.push_back(std::pair(level, content));
-
-  if (is_exit) this->exit();
-}
-
-void Log::exit()
-{
-  print();
-  ::exit(1);
 }
 
 void Log::print()
