@@ -19,15 +19,6 @@ private:
   // 设置默认 ptrace 调试选项
   bool set_default_ptrace_options(pid_t pid);
 
-  // ptrace 包装
-  bool ptrace_wrapper(int request, pid_t pid, void *address=nullptr, void *data=nullptr);
-
-  // waitpid 包装
-  bool waitpid_wrapper(pid_t pid, int* status, int __options);
-
-  // 解析 elf 文件
-
-
 public:
   DebuggerCore();
 
@@ -71,8 +62,8 @@ public:
 
   // 获取相关内存布局
 
-  // 获取目标进程的所有线程
-  std::vector<pid_t> get_thread_ids(pid_t pid);
+  // 解析 elf 文件
+
 };
 
 // launch 方法的参数处理类

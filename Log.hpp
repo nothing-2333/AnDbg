@@ -6,7 +6,7 @@
 #include <sstream> 
 
 
-enum LogLevel
+enum class LogLevel
 {
   DEBUG,
   WARNING,
