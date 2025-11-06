@@ -14,9 +14,9 @@ inline bool ptrace_wrapper(int request, pid_t pid, void *address=nullptr, void *
   long int ret;
 
   if (request == PTRACE_GETREGSET || request == PTRACE_SETREGSET)
-    ret = ptrace(static_cast<__ptrace_request>(request), static_cast<::pid_t>(pid), *(unsigned int *)address, data);
+    ret = ptrace(request, static_cast<::pid_t>(pid), *(unsigned int *)address, data);
   else  
-    ret = ptrace(static_cast<__ptrace_request>(request), static_cast<::pid_t>(pid), address, data);
+    ret = ptrace(request, static_cast<::pid_t>(pid), address, data);
 
   if (ret == -1) 
   {

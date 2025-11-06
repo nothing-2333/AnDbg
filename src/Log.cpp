@@ -24,13 +24,13 @@ void Log::print()
     std::string line_content = "";
     switch (level) 
     {
-      case DEBUG:
+      case LogLevel::DEBUG:
         line_content = "[DEBUG] "; 
         break;
-      case WARNING:
+      case LogLevel::WARNING:
         line_content = "[WARNING] "; 
         break;
-      case ERROR:
+      case LogLevel::ERROR:
         line_content = "[ERROR] "; 
         break;
       default: 
