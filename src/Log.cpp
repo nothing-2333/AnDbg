@@ -14,30 +14,36 @@ Log* Log::get_instance()
 
 void Log::add(LogLevel level, std::string content)
 {
-  messages.push_back(std::pair(level, content));
+  messages.emplace_back(std::pair(level, content));
+}
+
+std::string Log::to_string()
+{
+  std::ostringstream oss;
+  for (auto [level, content] : messages)
+  {
+    
+    switch (level) 
+    {
+      case LogLevel::DEBUG:
+        oss << "[DEBUG] ";
+        break;
+      case LogLevel::WARNING:
+        oss << "[WARNING] "; 
+        break;
+      case LogLevel::ERROR:
+        oss << "[ERROR] "; 
+        break;
+      default: 
+        oss << "[UNKNOWN] "; 
+        break;
+    }
+    oss << content << "\n";
+  }
+  return oss.str();
 }
 
 void Log::print()
 {
-  for (auto [level, content] : messages)
-  {
-    std::string line_content = "";
-    switch (level) 
-    {
-      case LogLevel::DEBUG:
-        line_content = "[DEBUG] "; 
-        break;
-      case LogLevel::WARNING:
-        line_content = "[WARNING] "; 
-        break;
-      case LogLevel::ERROR:
-        line_content = "[ERROR] "; 
-        break;
-      default: 
-        line_content = "[UNKNOWN] "; 
-        break;
-    }
-    line_content += (content + "\n");
-    std::cout << line_content;
-  }
+  std::cout << to_string();
 }

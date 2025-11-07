@@ -5,6 +5,8 @@
 #include <vector>
 #include <sstream> 
 
+#include "fmt/format.h"
+
 
 enum class LogLevel
 {
@@ -34,12 +36,14 @@ public:
 
   void add(LogLevel level, std::string content);
 
+  std::string to_string();
+
   void print();
 
   ~Log();
 };
 
-static std::string format_log(std::string content, const char* file, int line)
+static std::string format_log(const char* file, int line, std::string content)
 {
     const char* filename = file;
     const char* slash = strrchr(file, '/');
@@ -50,13 +54,29 @@ static std::string format_log(std::string content, const char* file, int line)
     return oss.str();
 }
 
-#define LOG(level, content) \
-  Log::get_instance()->add(level, content)
+template<typename... Args>
+static std::string format_log(const char* file, int line, const fmt::format_string<Args...>& format, Args&&... args)
+{
+    const char* filename = file;
+    const char* slash = strrchr(file, '/');
+    if (slash) filename = slash + 1;
 
-// 带文件名和行号的版本
-#define LOG_P(level, content) \
-    LOG(level, format_log(content, __FILE__, __LINE__))
+    try {
+        // 先通过 fmt 格式化内容, 再拼接文件名, 行号
+        std::string formatted_content = fmt::format(format, std::forward<Args>(args)...);
+        std::ostringstream oss;
+        oss << "[" << filename << ":" << line << "] " << formatted_content;
+        return oss.str();
+    }
+    catch (const fmt::format_error& e) {
+        // 格式化错误处理
+        return fmt::format("[{}:{}] [Format Error: {}] (Format: {})", filename, line, e.what(), format);
+    }
+}
 
-#define LOG_DEBUG(content) LOG_P(LogLevel::DEBUG, content)
-#define LOG_WARNING(content) LOG_P(LogLevel::WARNING, content)
-#define LOG_ERROR(content) LOG_P(LogLevel::ERROR, content)
+#define LOG(level, ...) \
+  Log::get_instance()->add(level, format_log(__FILE__, __LINE__, __VA_ARGS__))
+
+#define LOG_DEBUG(...) LOG(LogLevel::DEBUG, __VA_ARGS__)
+#define LOG_WARNING(...) LOG(LogLevel::WARNING, __VA_ARGS__)
+#define LOG_ERROR(...) LOG(LogLevel::ERROR, __VA_ARGS__)

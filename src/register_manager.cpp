@@ -1,6 +1,7 @@
-#include "register_manager.hpp"
 #include <cstdint>
 
+#include "utils.hpp"
+#include "register_manager.hpp"
 
 RegisterManager::RegisterManager()
 {

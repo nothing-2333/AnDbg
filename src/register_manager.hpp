@@ -1,6 +1,3 @@
-#include <cstdint>
-#include <memory>
-#include <sched.h>
 #pragma omce 
 
 #include <sys/ptrace.h>
@@ -8,14 +5,12 @@
 #include <sys/uio.h>
 #include <elf.h>
 #include <stdint.h>
-#include <vector>
-#include <string>
-#include <unordered_map>
 #include <cstring>
 #include <cstddef>
 #include <sys/types.h>
-
-#include "utils.hpp"
+#include <cstdint>
+#include <memory>
+#include <sched.h>
 
 
 // ARM64 寄存器枚举
