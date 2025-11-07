@@ -1,5 +1,3 @@
-#include <cctype>
-#include <cstdlib>
 #include <cstring>
 #include <sched.h>
 #include <string>
@@ -29,7 +27,7 @@ bool DebuggerCore::launch(LaunchInfo& launch_info)
   // 子进程
   else if (pid == 0)
   {
-    Utils::ptrace_wrapper(PTRACE_TRACEME, 0);
+    Utils::ptrace_wrapper(PTRACE_TRACEME, 0, nullptr, nullptr, 0);
     // 若执行成功, 当前进程会被完全替换, 后续代码不会执行; 若失败则进入下方错误处理
     execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
 
@@ -75,7 +73,7 @@ bool DebuggerCore::attach(pid_t pid)
 
   for (pid_t tid : tids)
   {
-    if (Utils::ptrace_wrapper(PTRACE_ATTACH, tid))
+    if (Utils::ptrace_wrapper(PTRACE_ATTACH, tid, nullptr, nullptr, 0))
     {
       // 等待线程停止
       int status;
@@ -114,7 +112,7 @@ bool DebuggerCore::detach()
 
   for (pid_t tid : m_tids)
   {
-    if (Utils::ptrace_wrapper(PTRACE_DETACH, tid, nullptr, (void*)0))
+    if (Utils::ptrace_wrapper(PTRACE_DETACH, tid, nullptr, nullptr, 0))
       success_count++;
     else  
     {
@@ -146,7 +144,7 @@ bool DebuggerCore::step_into(pid_t tid)
   // 默认运行主线程
   if (tid == -1) tid = m_pid;
 
-  if (Utils::ptrace_wrapper(PTRACE_SINGLESTEP, tid, nullptr, nullptr))
+  if (Utils::ptrace_wrapper(PTRACE_SINGLESTEP, tid, nullptr, nullptr, 0))
   {
     int status;
     if (Utils::waitpid_wrapper(tid, &status, __WALL))
@@ -178,7 +176,7 @@ bool DebuggerCore::run()
 
   for (pid_t tid : m_tids) 
   {
-    if (!Utils::ptrace_wrapper(PTRACE_CONT, tid))
+    if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, nullptr, 0))
       LOG_WARNING("继续线程 " + std::to_string(tid) + " 失败");
     else success = true;
   }
@@ -203,6 +201,7 @@ bool DebuggerCore::set_default_ptrace_options(pid_t pid)
   // 跟踪 vfork() 完成事件, vfork() 创建的子进程执行 exec 或退出后, 父进程恢复前会暂停
   ptrace_options |= PTRACE_O_TRACEVFORKDONE;
 
-  return Utils::ptrace_wrapper(PTRACE_SETOPTIONS, pid, nullptr, (void*)ptrace_options);
+  return Utils::ptrace_wrapper(PTRACE_SETOPTIONS, pid, nullptr, 
+    reinterpret_cast<void*>(ptrace_options), sizeof(long));
 }
 

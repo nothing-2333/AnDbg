@@ -1,10 +1,16 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
-#include <fmt/format.h>
+#include <sys/types.h>
+#include <vector>
+#include <sys/mman.h> 
 
-class MemoryRegion
+#include "fmt/format.h"
+
+
+struct MemoryRegion
 {
   uint64_t start_address;
   uint64_t end_address;
@@ -15,70 +21,70 @@ class MemoryRegion
   uint64_t inode;           // 文件系统的 inode 编号
   std::string pathname;     // 映射的文件路径或区域描述
 
+  bool is_readable() const { return permissions.find('r') != std::string::npos; }
+  bool is_writable() const { return permissions.find('w') != std::string::npos; }
+  bool is_executable() const { return permissions.find('x') != std::string::npos; }
+  bool is_private() const { return permissions.find('p') != std::string::npos; }
+  bool is_shared() const { return permissions.find('s') != std::string::npos; }
+  bool is_anonymous() const { 
+    return pathname.empty() || 
+      pathname.find("[anon]") != std::string::npos ||
+      pathname.find("//anon") != std::string::npos;
+  }
+  bool is_stack() const { 
+    return pathname == "[stack]" || pathname.find("[stack") != std::string::npos;
+  }
+  bool is_heap() const { 
+    return pathname == "[heap]" || pathname.find("[heap") != std::string::npos;
+  }
+  bool is_vdso() const { return pathname == "[vdso]"; }
+  bool is_vvar() const { return pathname == "[vvar]"; }
+  bool is_vsyscall() const { return pathname == "[vsyscall]"; }
+
   std::string to_string() const 
   {
     return fmt::format("{:016x}-{:016x} {} {:08x} {} {} {}", 
       start_address, end_address, permissions, file_offset, dev, inode, pathname);
+  }
+
+  bool contains(uint64_t address) const {
+    return address >= start_address && address < end_address;
   }
 };
 
 class MemoryManager
 {
 private:
+  // 使用 ptrace 读取内存
+  bool read_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size);
+  // 使用 ptrace 写入内存
+  bool write_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size);
+  // maps 解析器
+  bool parse_maps_line(const std::string& line, MemoryRegion& region);
 
 public:
+  explicit MemoryManager() {};
 
+  // 读取内存
+  bool read_memory(uint64_t address, void* buffer, size_t size);
+  // 写入内存
+  bool write_memory(uint64_t address, void* buffer, size_t size);
+  // 获取内存布局
+  std::vector<MemoryRegion> get_memory_regions();
+  // 搜索内存
+  std::vector<uint64_t> search_memory(const std::vector<uint8_t>& pattern, uint64_t start_address, uint64_t end_addr);
+  // 转储内存到文件
+  bool dump_memory(uint64_t start_address, uint64_t end_address, const std::string& filename);
+  // 在目标进程中分配内存
+  uint64_t allocate_memory(pid_t pid, size_t size, int prot = PROT_READ | PROT_WRITE);
 };
+
 /*
-struct MemoryRegion {
-    uint64_t start_addr;
-    uint64_t end_addr;
-    uint64_t size;
-    std::string perms;
-    uint64_t offset;
-    std::string dev;
-    uint64_t inode;
-    std::string pathname;
-
-    // 改进的辅助方法
-    bool is_readable() const { return perms.find('r') != std::string::npos; }
-    bool is_writable() const { return perms.find('w') != std::string::npos; }
-    bool is_executable() const { return perms.find('x') != std::string::npos; }
-    bool is_private() const { return perms.find('p') != std::string::npos; }
-    bool is_shared() const { return perms.find('s') != std::string::npos; }
-    bool is_anonymous() const { 
-        return pathname.empty() || 
-               pathname.find("[anon]") != std::string::npos ||
-               pathname.find("//anon") != std::string::npos;
-    }
-    bool is_stack() const { 
-        return pathname == "[stack]" || pathname.find("[stack") != std::string::npos;
-    }
-    bool is_heap() const { 
-        return pathname == "[heap]" || pathname.find("[heap") != std::string::npos;
-    }
-    bool is_vdso() const { return pathname == "[vdso]"; }
-    bool is_vvar() const { return pathname == "[vvar]"; }
-    bool is_vsyscall() const { return pathname == "[vsyscall]"; }
-
-    // 格式化输出
-    std::string to_string() const {
-        return fmt::format("{:016x}-{:016x} {} {:08x} {} {} {}",
-                          start_addr, end_addr, perms, offset, dev, inode, pathname);
-    }
-
-    // 检查地址是否在区域内
-    bool contains(uint64_t addr) const {
-        return addr >= start_addr && addr < end_addr;
-    }
-};
-
 class MemoryManager {
 private:
     pid_t m_pid;
     std::vector<MemoryRegion> m_cached_regions;
     bool m_regions_cached;
-    std::unordered_map<uint64_t, uint64_t> m_breakpoints; // 断点管理
 
 public:
     explicit MemoryManager(pid_t pid = -1) 
@@ -391,68 +397,5 @@ private:
         return waitpid(pid, &status, 0) != -1 && WIFSTOPPED(status);
     }
 };
-
-class DebuggerCore {
-private:
-    pid_t m_pid;
-    std::vector<pid_t> m_tids;
-    std::unique_ptr<RegisterManager> m_reg_manager;
-    std::unique_ptr<MemoryManager> m_mem_manager;
-    bool m_attached;
-
-public:
-    DebuggerCore() : m_pid(-1), m_attached(false) {}
-
-    bool launch(LaunchInfo& launch_info) {
-        // ... 原有的启动逻辑 ...
-        m_pid = pid;
-        m_mem_manager = std::make_unique<MemoryManager>(m_pid);
-        m_reg_manager = std::make_unique<RegisterManager>(m_pid);
-        // ...
-    }
-
-    bool attach(pid_t pid) {
-        // ... 原有的附加逻辑 ...
-        m_pid = pid;
-        m_mem_manager = std::make_unique<MemoryManager>(m_pid);
-        m_reg_manager = std::make_unique<RegisterManager>(m_pid);
-        // ...
-    }
-
-    // 内存操作委托
-    bool read_memory(uint64_t addr, void* buf, size_t size) {
-        return m_mem_manager ? m_mem_manager->read_memory(addr, buf, size) : false;
-    }
-
-    template<typename T>
-    bool read_memory(uint64_t addr, T& value) {
-        return m_mem_manager ? m_mem_manager->read_memory(addr, value) : false;
-    }
-
-    bool write_memory(uint64_t addr, const void* buf, size_t size) {
-        return m_mem_manager ? m_mem_manager->write_memory(addr, buf, size) : false;
-    }
-
-    template<typename T>
-    bool write_memory(uint64_t addr, const T& value) {
-        return m_mem_manager ? m_mem_manager->write_memory(addr, value) : false;
-    }
-
-    // 高级内存功能
-    std::vector<MemoryRegion> get_memory_map() {
-        return m_mem_manager ? m_mem_manager->get_memory_regions() : std::vector<MemoryRegion>{};
-    }
-
-    std::string read_string(uint64_t addr, size_t max_len = 4096) {
-        return m_mem_manager ? m_mem_manager->read_cstring(addr, max_len) : "";
-    }
-
-    std::vector<uint64_t> search_memory(const std::vector<uint8_t>& pattern) {
-        return m_mem_manager ? m_mem_manager->search_memory(pattern) : std::vector<uint64_t>{};
-    }
-
-    // 获取内存管理器（直接访问高级功能）
-    MemoryManager* memory() { return m_mem_manager.get(); }
-    RegisterManager* registers() { return m_reg_manager.get(); }
 };
 */

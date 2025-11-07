@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <dirent.h>
@@ -9,25 +10,43 @@
 
 namespace Utils 
 {
-inline bool ptrace_wrapper(int request, pid_t pid, void *address=nullptr, void *data=nullptr)
+inline bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size, long* result = nullptr)
 {
-  long int ret;
+  long int ret = 0;
+
+  // // 重置 errno
+  errno = 0;
 
   if (request == PTRACE_GETREGSET || request == PTRACE_SETREGSET)
-    ret = ptrace(request, static_cast<::pid_t>(pid), *(unsigned int *)address, data);
+  {
+    if (address == nullptr) 
+    {
+      LOG_ERROR("PTRACE_GETREGSET/SETREGSET 传入的 address 不能为空");
+      ret = -1;
+    }
+    else  
+    {
+      ret = ptrace(request, static_cast<::pid_t>(pid), *reinterpret_cast<unsigned int*>(address), data);
+    }
+  }
   else  
     ret = ptrace(request, static_cast<::pid_t>(pid), address, data);
 
-  if (ret == -1) 
+  // 记录日志
+  LOG_DEBUG("ptrace(request: {}, pid: {}, address: {:p}, data: {:p}, data_size: {}, ret: 0x{:x})",
+    request, pid, static_cast<const void*>(address), static_cast<const void*>(data), data_size, ret
+  );
+
+  // 如果有返回值保存返回值
+  if (result != nullptr) *result = ret;
+
+  
+  if (ret == -1 && errno != 0) 
   {
-    LOG_ERROR(std::string("ptrace 失败, request: ") + std::to_string(request));
+    LOG_ERROR("ptrace 调用失败, errno: {}, 错误信息: {}", errno, strerror(errno));
     return false;
   }
-  else  
-  {
-    LOG_DEBUG(std::string("ptrace 成功, request: ") + std::to_string(request));
-    return true;
-  }
+  else return true;;
 }
 
 inline bool waitpid_wrapper(pid_t pid, int* status, int __options)

@@ -20,7 +20,8 @@ bool RegisterManager::ptrace_get_regset(pid_t pid, void* data, size_t size, Regi
   iov.iov_base = data;
   iov.iov_len = size;
 
-  return Utils::ptrace_wrapper(PTRACE_GETREGSET, pid, (void*)(uintptr_t)regset, &iov);
+  return Utils::ptrace_wrapper(PTRACE_GETREGSET, pid, 
+    reinterpret_cast<void*>(static_cast<unsigned int>(regset)), &iov, size);
 }
 
 bool RegisterManager::ptrace_set_regset(pid_t pid, const void* data, size_t size, RegisterSet regset)
@@ -29,7 +30,8 @@ bool RegisterManager::ptrace_set_regset(pid_t pid, const void* data, size_t size
   iov.iov_base = const_cast<void*>(data);
   iov.iov_len = size;
 
-  return Utils::ptrace_wrapper(PTRACE_SETREGSET, pid, (void*)(uintptr_t)regset, &iov);
+  return Utils::ptrace_wrapper(PTRACE_SETREGSET, pid, 
+    reinterpret_cast<void*>(static_cast<unsigned int>(regset)), &iov, size);
 }
 
 bool RegisterManager::refresh_gpr_cache(pid_t pid)
