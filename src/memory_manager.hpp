@@ -26,20 +26,6 @@ struct MemoryRegion
   bool is_executable() const { return permissions.find('x') != std::string::npos; }
   bool is_private() const { return permissions.find('p') != std::string::npos; }
   bool is_shared() const { return permissions.find('s') != std::string::npos; }
-  bool is_anonymous() const { 
-    return pathname.empty() || 
-      pathname.find("[anon]") != std::string::npos ||
-      pathname.find("//anon") != std::string::npos;
-  }
-  bool is_stack() const { 
-    return pathname == "[stack]" || pathname.find("[stack") != std::string::npos;
-  }
-  bool is_heap() const { 
-    return pathname == "[heap]" || pathname.find("[heap") != std::string::npos;
-  }
-  bool is_vdso() const { return pathname == "[vdso]"; }
-  bool is_vvar() const { return pathname == "[vvar]"; }
-  bool is_vsyscall() const { return pathname == "[vsyscall]"; }
 
   std::string to_string() const 
   {
@@ -70,7 +56,7 @@ public:
   // 写入内存
   bool write_memory(uint64_t address, void* buffer, size_t size);
   // 获取内存布局
-  std::vector<MemoryRegion> get_memory_regions();
+  std::vector<MemoryRegion> get_memory_regions(pid_t pid);
   // 搜索内存
   std::vector<uint64_t> search_memory(const std::vector<uint8_t>& pattern, uint64_t start_address, uint64_t end_addr);
   // 转储内存到文件

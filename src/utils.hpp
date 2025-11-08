@@ -10,6 +10,8 @@
 
 namespace Utils 
 {
+
+// ptrace 包装
 inline bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size, long* result = nullptr)
 {
   long int ret = 0;
@@ -49,6 +51,7 @@ inline bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, si
   else return true;;
 }
 
+// waitpid 包装
 inline bool waitpid_wrapper(pid_t pid, int* status, int __options)
 {
   int wpid = waitpid(pid, status, __options);
@@ -96,5 +99,6 @@ inline std::vector<pid_t> get_thread_ids(pid_t pid)
   // 编译器会自动进行 RVO(返回值优化), 加不加 std::move 都行
   return std::move(tids); 
 }
+
 }
 
