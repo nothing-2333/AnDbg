@@ -5,6 +5,7 @@
 #include <vector>
 #include <sstream> 
 
+#include "fmt/base.h"
 #include "fmt/format.h"
 
 
@@ -70,7 +71,7 @@ static std::string format_log(const char* file, int line, const fmt::format_stri
     }
     catch (const fmt::format_error& e) {
         // 格式化错误处理
-        return fmt::format("[{}:{}] [Format Error: {}] (Format: {})", filename, line, e.what(), format);
+        return fmt::format("[{}:{}] [Format Error: {}] (Format: {})", filename, line, e.what(), format.get());
     }
 }
 
