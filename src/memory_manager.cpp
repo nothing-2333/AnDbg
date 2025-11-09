@@ -1,12 +1,16 @@
 #include <algorithm>
+#include <cassert>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <linux/uio.h>
 #include <sstream>
 #include <string>
+#include <sys/uio.h>
+#include <vector>
 
 #include "memory_manager.hpp"
 #include "Log.hpp"
@@ -33,7 +37,7 @@ bool MemoryManager::read_memory_ptrace(pid_t pid, uint64_t address, void* buffer
   return true;
 }
 
-bool MemoryManager::write_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size)
+bool MemoryManager::write_memory_ptrace(pid_t pid, uint64_t address, const void* buffer, size_t size)
 {
   const uint8_t* byte_buffer = static_cast<const uint8_t*>(buffer);
   size_t bytes_written = 0;
@@ -189,4 +193,255 @@ bool MemoryManager::parse_maps_line(const std::string& line, MemoryRegion& regio
   if (iss.fail() && !iss.eof()) LOG_WARNING("解析 maps 行时遇到流错误: {}", line);
 
   return true;
+}
+
+bool MemoryManager::check_address_permission(pid_t pid, uint64_t address, size_t size, bool need_write)
+{
+  if (size <= 0) {
+    LOG_ERROR("size 必须大于等于 0");
+    return false;
+  }
+
+  //  避免 address + size 溢出 64 位地址极端情况
+  if (address > UINT64_MAX - size)
+  {
+    LOG_ERROR("address + size 溢出");
+    return false;
+  }
+  const uint64_t end_address = address + size;
+
+
+  std::vector<MemoryRegion> regions = get_memory_regions(pid);
+  if (regions.empty())
+  {
+    LOG_ERROR("没有分配内存, PID: {}", pid);
+    return false;
+  }
+
+  // 遍历内存区域, 检查区间是否完全覆盖
+  uint64_t current_address = address;
+  auto region_item = regions.begin();
+
+  while (current_address < end_address) 
+  {
+    // 找到包含 current_address 的内存区域, 利用 regions 有序性，无需从头遍历
+    while (region_item != regions.end() && !region_item->contains(current_address)) 
+    {
+      ++region_item;
+    }
+    // 无匹配区域
+    if (region_item == regions.end())
+    {
+      LOG_ERROR("地址 0x{:x} 未映射内存", current_address);
+      return false;
+    }
+
+    const auto& current_regoin = *region_item;
+
+    // 权限校验
+    if (!current_regoin.is_readable())
+    {
+      LOG_ERROR("内存 0x{:x}-0x{:x} 不可读", current_regoin.start_address, current_regoin.end_address);
+      return false;
+    }
+    if (need_write && current_regoin.is_writable())
+    {
+      LOG_ERROR("内存 0x{:x}-0x{:x} 不可写", current_regoin.start_address, current_regoin.end_address);
+      return false;
+    }
+
+    // 继续检查下一个区域
+    current_address = current_regoin.end_address;
+    ++region_item;
+  }
+
+  // 所有区间都通过校验
+  return true;
+}
+
+bool MemoryManager::read_memory(pid_t pid, uint64_t address, void* buffer, size_t size)
+{
+  if (buffer == nullptr || size == 0)
+  {
+    LOG_ERROR("错误的参数");
+    return false;
+  }
+
+  // 检查地址权限
+  if (!check_address_permission(pid, address, size, false))
+  {
+    LOG_ERROR("没有读取权限, address: 0x{:x}", address);
+    return false;
+  }
+
+  // 使用 process_vm_readv 进行高效读取
+  struct iovec loval_iov = {buffer, size};
+  struct iovec remote_iov = {reinterpret_cast<void*>(address), size};
+  ssize_t ret = process_vm_readv(pid, &loval_iov, 1, &remote_iov, 1, 0);
+  if (ret == static_cast<ssize_t>(size)) return true;
+
+  // 如果 process_vm_readv 失败, 回退到 ptrace
+  LOG_WARNING("process_vm_readv 失败, 使用 ptrace");
+  return read_memory_ptrace(pid, address, buffer, size);
+}
+
+bool MemoryManager::write_memory(pid_t pid, uint64_t address, const void* buffer, size_t size)
+{
+  if (buffer == nullptr || size == 0)
+  {
+    LOG_ERROR("错误的参数");
+    return false;
+  }
+
+  // 检查地址权限
+  if (!check_address_permission(pid, address, size, false))
+  {
+    LOG_ERROR("没有写入权限, address: 0x{:x}", address);
+    return false;
+  }
+
+  // 使用 process_vm_writev 进行高效写入
+  struct iovec loval_iov = {const_cast<void*>(buffer), size};
+  struct iovec remote_iov = {reinterpret_cast<void*>(address), size};
+  ssize_t ret = process_vm_writev(pid, &loval_iov, 1, &remote_iov, 1, 0);
+  if (ret == static_cast<ssize_t>(size)) return true;
+
+  // 如果 process_vm_writev 失败, 回退到 ptrace
+  LOG_WARNING("process_vm_writev 失败, 使用 ptrace");
+  return write_memory_ptrace(pid, address, buffer, size);
+}
+
+std::vector<uint64_t> MemoryManager::search_memory(pid_t pid, const std::vector<uint8_t>& pattern)
+{
+  // 储存满足条件的地址
+  std::vector<uint64_t> results;
+
+  // 基础参数校验
+  if (pattern.empty())
+  {
+    LOG_ERROR("搜索 pattern 为空");
+    return results;
+  }
+  const size_t pattern_size = pattern.size();
+  if (pattern_size == 0) return results;
+
+  auto regions = get_memory_regions(pid);
+  for (const auto& region : regions)
+  {
+    // 跳过不可读区域
+    if (!region.is_readable()) continue;
+
+    // 区域大小小于 pattern, 直接跳过
+    if (region.size < pattern_size) continue;
+
+    // 分块读取区域
+    const size_t chunk_size = 4 * 1024 * 1024;
+    // 缓冲区预分配
+    std::vector<uint8_t> buffer(chunk_size); 
+
+    uint64_t current_address = region.start_address;
+    while (current_address < region.end_address) 
+    {
+      // 计算当前块的实际读取大小
+      const size_t read_size = std::min(chunk_size, region.end_address - current_address);
+      buffer.resize(read_size);
+
+      if (!read_memory(pid, current_address, buffer.data(), read_size))
+      {
+        LOG_WARNING("search_memory: 读取区域 0x{:x}-0x{:x} 失败, 跳过", current_address, current_address + read_size);
+        current_address += read_size;
+        continue;
+      }
+
+      // 在当前块中搜索 pattern
+      for (size_t i = 0; i <= read_size - pattern_size; ++i)
+      {
+        if (memcmp(&buffer[i], pattern.data(), pattern_size) == 0)
+          results.push_back(current_address + i);
+      }
+
+      current_address += read_size;
+    }
+  }
+
+  return results;
+}
+
+bool MemoryManager::dump_memory(pid_t pid, uint64_t start_address, uint64_t end_address, const std::string& filename)
+{
+  // 基础参数校验
+  if (filename.empty()) 
+  {
+    LOG_ERROR("输出文件名为空");
+    return false;
+  }
+  if (start_address >= end_address) 
+  {
+    LOG_ERROR("起始地址 0x{:x} >= 结束地址 0x{:x}, 无效区间", start_address, end_address);
+    return false;
+  }
+
+  uint64_t size = end_address - start_address;
+
+  // 权限校验
+  if (!check_address_permission(pid, start_address, size, false))
+  {
+    LOG_ERROR("区间 0x{:x}-0x{:x} 存在不可读区域或地址无效", start_address, end_address);
+    return false;
+  }
+
+  // 分块读取, 写入
+  const size_t chunk_size = 4 * 1024 * 1024;
+  std::vector<uint8_t> buffer(chunk_size);
+  // trunc: 覆盖已有文件
+  std::ofstream file(filename, std::ios::binary | std::ios::trunc);
+  if (!file.is_open())
+  {
+    LOG_ERROR("创建文件 {} 失败: {}", filename, strerror(errno));
+    return false;
+  }
+  
+  uint64_t current_address = start_address;
+  uint64_t remaining = size;
+
+  while (remaining > 0) 
+  {
+    // 计算当前块实际读取大小
+    size_t read_size = std::min(chunk_size, remaining);
+    buffer.resize(read_size);
+
+    // 读取当前块内存
+    if (!read_memory(pid, current_address, buffer.data(), read_size)) {
+      LOG_ERROR("读取地址 0x{:x} 失败, 已转存 {} bytes", current_address, size - remaining);
+      file.close();
+      return false;
+    }
+
+    // 写入文件
+    file.write(reinterpret_cast<const char*>(buffer.data()), read_size);
+    if (!file.good())
+    {
+      LOG_ERROR("写入文件 {} 失败: {}", filename, strerror(errno));
+      file.close();
+      return false;
+    }
+
+    current_address += read_size;
+    remaining -= read_size;
+
+    LOG_DEBUG("转存进度: {}/{} bytes ({}%)", size - remaining, size, (size - remaining) * 100 / size);
+  }
+
+  // 最终确认文件写入状态, 刷新缓冲区
+  file.flush();
+  if (file.good()) 
+  {
+    LOG_DEBUG("内存转存成功, 文件 {}, 大小 {} bytes(0x{:x})", filename, size, size);
+    return true;
+  } 
+  else 
+  {
+    LOG_ERROR("文件刷新失败");
+    return false;
+  }
 }
