@@ -38,7 +38,7 @@ struct MemoryRegion
   }
 };
 
-class MemoryManager
+class MemoryControl
 {
 private:
   // 使用 ptrace 读取内存
@@ -54,7 +54,7 @@ private:
   bool check_address_permission(pid_t pid, uint64_t address, size_t size, bool need_write);
 
 public:
-  explicit MemoryManager() {};
+  explicit MemoryControl() {};
 
   // 读取内存
   bool read_memory(pid_t pid, uint64_t address, void* buffer, size_t size);

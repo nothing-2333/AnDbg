@@ -12,12 +12,12 @@
 #include <sys/uio.h>
 #include <vector>
 
-#include "memory_manager.hpp"
+#include "memory_control.hpp"
 #include "Log.hpp"
 #include "fmt/format.h"
 #include "utils.hpp"
 
-bool MemoryManager::read_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size)
+bool MemoryControl::read_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size)
 {
   uint8_t* byte_buffer = static_cast<uint8_t*>(buffer);
   size_t bytes_read = 0;
@@ -37,7 +37,7 @@ bool MemoryManager::read_memory_ptrace(pid_t pid, uint64_t address, void* buffer
   return true;
 }
 
-bool MemoryManager::write_memory_ptrace(pid_t pid, uint64_t address, const void* buffer, size_t size)
+bool MemoryControl::write_memory_ptrace(pid_t pid, uint64_t address, const void* buffer, size_t size)
 {
   const uint8_t* byte_buffer = static_cast<const uint8_t*>(buffer);
   size_t bytes_written = 0;
@@ -68,7 +68,7 @@ bool MemoryManager::write_memory_ptrace(pid_t pid, uint64_t address, const void*
   return true;
 }
 
-std::vector<MemoryRegion> MemoryManager::get_memory_regions(pid_t pid)
+std::vector<MemoryRegion> MemoryControl::get_memory_regions(pid_t pid)
 {
   std::vector<MemoryRegion> regions;
 
@@ -95,7 +95,7 @@ std::vector<MemoryRegion> MemoryManager::get_memory_regions(pid_t pid)
   return regions;
 }
 
-bool MemoryManager::parse_maps_line(const std::string& line, MemoryRegion& region)
+bool MemoryControl::parse_maps_line(const std::string& line, MemoryRegion& region)
 {
   std::istringstream iss(line);
   std::string address_range;
@@ -195,7 +195,7 @@ bool MemoryManager::parse_maps_line(const std::string& line, MemoryRegion& regio
   return true;
 }
 
-bool MemoryManager::check_address_permission(pid_t pid, uint64_t address, size_t size, bool need_write)
+bool MemoryControl::check_address_permission(pid_t pid, uint64_t address, size_t size, bool need_write)
 {
   if (size <= 0) {
     LOG_ERROR("size 必须大于等于 0");
@@ -259,7 +259,7 @@ bool MemoryManager::check_address_permission(pid_t pid, uint64_t address, size_t
   return true;
 }
 
-bool MemoryManager::read_memory(pid_t pid, uint64_t address, void* buffer, size_t size)
+bool MemoryControl::read_memory(pid_t pid, uint64_t address, void* buffer, size_t size)
 {
   if (buffer == nullptr || size == 0)
   {
@@ -285,7 +285,7 @@ bool MemoryManager::read_memory(pid_t pid, uint64_t address, void* buffer, size_
   return read_memory_ptrace(pid, address, buffer, size);
 }
 
-bool MemoryManager::write_memory(pid_t pid, uint64_t address, const void* buffer, size_t size)
+bool MemoryControl::write_memory(pid_t pid, uint64_t address, const void* buffer, size_t size)
 {
   if (buffer == nullptr || size == 0)
   {
@@ -311,7 +311,7 @@ bool MemoryManager::write_memory(pid_t pid, uint64_t address, const void* buffer
   return write_memory_ptrace(pid, address, buffer, size);
 }
 
-std::vector<uint64_t> MemoryManager::search_memory(pid_t pid, const std::vector<uint8_t>& pattern)
+std::vector<uint64_t> MemoryControl::search_memory(pid_t pid, const std::vector<uint8_t>& pattern)
 {
   // 储存满足条件的地址
   std::vector<uint64_t> results;
@@ -367,7 +367,7 @@ std::vector<uint64_t> MemoryManager::search_memory(pid_t pid, const std::vector<
   return results;
 }
 
-bool MemoryManager::dump_memory(pid_t pid, uint64_t start_address, uint64_t end_address, const std::string& filename)
+bool MemoryControl::dump_memory(pid_t pid, uint64_t start_address, uint64_t end_address, const std::string& filename)
 {
   // 基础参数校验
   if (filename.empty()) 
@@ -446,7 +446,7 @@ bool MemoryManager::dump_memory(pid_t pid, uint64_t start_address, uint64_t end_
   }
 }
 
-uint64_t MemoryManager::allocate_memory(pid_t pid, size_t size, int prot)
+uint64_t MemoryControl::allocate_memory(pid_t pid, size_t size, int prot)
 {
 
 }

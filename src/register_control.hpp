@@ -1,5 +1,3 @@
-#include <optional>
-#include <variant>
 #pragma omce 
 
 #include <sys/ptrace.h>
@@ -11,8 +9,9 @@
 #include <cstddef>
 #include <sys/types.h>
 #include <cstdint>
-#include <memory>
 #include <sched.h>
+#include <optional>
+#include <variant>
 
 
 // 通用寄存器索引
@@ -49,7 +48,7 @@ enum class DBRegister : int {
   MAX_REGISTERS
 };
 
-class RegisterManager
+class RegisterControl
 {
 private:
   // ARM64 寄存器集类型
@@ -87,14 +86,14 @@ private:
   static const char* dbg_names[static_cast<int>(DBRegister::MAX_REGISTERS)];
 
 public: 
-  RegisterManager() = default;
-  ~RegisterManager() = default;
+  RegisterControl() = default;
+  ~RegisterControl() = default;
 
   // 禁止拷贝和移动
-  RegisterManager(const RegisterManager&) = delete;
-  RegisterManager& operator=(const RegisterManager&) = delete;
-  RegisterManager(RegisterManager&&) = delete;
-  RegisterManager& operator=(RegisterManager&&) = delete;
+  RegisterControl(const RegisterControl&) = delete;
+  RegisterControl& operator=(const RegisterControl&) = delete;
+  RegisterControl(RegisterControl&&) = delete;
+  RegisterControl& operator=(RegisterControl&&) = delete;
 
   // 获取所有通用寄存器
   std::optional<struct user_pt_regs> get_all_gpr(pid_t pid);

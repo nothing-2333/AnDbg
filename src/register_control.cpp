@@ -1,5 +1,4 @@
 #include "Log.hpp"
-#include "memory_manager.hpp"
 #include "utils.hpp"
 #include <asm/ptrace.h>
 #include <cstddef>
@@ -7,11 +6,12 @@
 #include <optional>
 #include <utility>
 #include <variant>
-#include "register_manager.hpp"
+
+#include "register_control.hpp"
 
 
 // 通用寄存器名称映射
-const char* RegisterManager::gpr_names[] = {
+const char* RegisterControl::gpr_names[] = {
   "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
   "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
   "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
@@ -22,7 +22,7 @@ const char* RegisterManager::gpr_names[] = {
 };
 
 // 浮点寄存器名称映射
-const char* RegisterManager::fpr_names[] = {
+const char* RegisterControl::fpr_names[] = {
   "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
   "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", 
   "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
@@ -32,13 +32,13 @@ const char* RegisterManager::fpr_names[] = {
 };
 
 // 调试寄存器名称映射
-const char* RegisterManager::dbg_names[] = {
+const char* RegisterControl::dbg_names[] = {
     "dbg0", "dbg1", "dbg2", "dbg3", "dbg4", "dbg5", "dbg6", "dbg7",
     "dbg8", "dbg9", "dbg10", "dbg11", "dbg12", "dbg13", "dbg14", "dbg15",
     "dbg_info",
 };
 
-bool RegisterManager::ptrace_get_regset(pid_t pid, void* data, size_t size, RegisterType regset)
+bool RegisterControl::ptrace_get_regset(pid_t pid, void* data, size_t size, RegisterType regset)
 {
   struct iovec iov;
   iov.iov_base = data;
@@ -48,7 +48,7 @@ bool RegisterManager::ptrace_get_regset(pid_t pid, void* data, size_t size, Regi
     reinterpret_cast<void*>(static_cast<unsigned int>(regset)), &iov, size);
 }
 
-bool RegisterManager::ptrace_set_regset(pid_t pid, const void* data, size_t size, RegisterType regset)
+bool RegisterControl::ptrace_set_regset(pid_t pid, const void* data, size_t size, RegisterType regset)
 {
   struct iovec iov;
   iov.iov_base = const_cast<void*>(data);
@@ -58,7 +58,7 @@ bool RegisterManager::ptrace_set_regset(pid_t pid, const void* data, size_t size
     reinterpret_cast<void*>(static_cast<unsigned int>(regset)), &iov, size);
 }
 
-std::optional<struct user_pt_regs> RegisterManager::get_all_gpr(pid_t pid)
+std::optional<struct user_pt_regs> RegisterControl::get_all_gpr(pid_t pid)
 {
   struct user_pt_regs regs;
   if (ptrace_get_regset(pid, &regs, sizeof(regs), RegisterType::GPR))
@@ -68,13 +68,13 @@ std::optional<struct user_pt_regs> RegisterManager::get_all_gpr(pid_t pid)
   return std::nullopt;
 }
 
-bool RegisterManager::set_all_gpr(pid_t pid, const struct user_pt_regs& regs)
+bool RegisterControl::set_all_gpr(pid_t pid, const struct user_pt_regs& regs)
 {
   return ptrace_set_regset(pid, &regs, sizeof(regs), RegisterType::GPR);
 }
 
 
-std::optional<struct user_fpsimd_state> RegisterManager::get_all_fpr(pid_t pid)
+std::optional<struct user_fpsimd_state> RegisterControl::get_all_fpr(pid_t pid)
 {
   struct user_fpsimd_state fpr;
   if (ptrace_get_regset(pid, &fpr, sizeof(fpr), RegisterType::FPR))
@@ -84,12 +84,12 @@ std::optional<struct user_fpsimd_state> RegisterManager::get_all_fpr(pid_t pid)
   return std::nullopt;
 }
 
-bool RegisterManager::set_all_fpr(pid_t pid, const struct user_fpsimd_state& fpr)
+bool RegisterControl::set_all_fpr(pid_t pid, const struct user_fpsimd_state& fpr)
 {
   return ptrace_set_regset(pid, &fpr, sizeof(fpr), RegisterType::FPR);
 }
 
-std::optional<struct user_hwdebug_state> RegisterManager::get_all_dbg(pid_t pid)
+std::optional<struct user_hwdebug_state> RegisterControl::get_all_dbg(pid_t pid)
 {
   struct user_hwdebug_state dbg;
   if (ptrace_get_regset(pid, &dbg, sizeof(dbg), RegisterType::DBG)) 
@@ -99,12 +99,12 @@ std::optional<struct user_hwdebug_state> RegisterManager::get_all_dbg(pid_t pid)
   return std::nullopt;
 }
 
-bool RegisterManager::set_all_dbg(pid_t pid, const struct user_hwdebug_state& dbg)
+bool RegisterControl::set_all_dbg(pid_t pid, const struct user_hwdebug_state& dbg)
 {
   return ptrace_set_regset(pid, &dbg, sizeof(dbg), RegisterType::DBG);
 }
 
-std::optional<uint64_t> RegisterManager::get_gpr(pid_t pid, GPRegister reg)
+std::optional<uint64_t> RegisterControl::get_gpr(pid_t pid, GPRegister reg)
 {
   auto gpr_opt = get_all_gpr(pid);
   if (!gpr_opt) return std::nullopt;
@@ -117,7 +117,7 @@ std::optional<uint64_t> RegisterManager::get_gpr(pid_t pid, GPRegister reg)
   return *value_ptr;
 }
 
-bool RegisterManager::set_gpr(pid_t pid, GPRegister reg, uint64_t value)
+bool RegisterControl::set_gpr(pid_t pid, GPRegister reg, uint64_t value)
 {
   auto gpr_opt = get_all_gpr(pid);
   if (!gpr_opt) return false;
@@ -131,7 +131,7 @@ bool RegisterManager::set_gpr(pid_t pid, GPRegister reg, uint64_t value)
   return set_all_gpr(pid, gpr);
 }
 
-std::optional<RegisterManager::FPRValue> RegisterManager::get_fpr(pid_t pid, FPRegister reg)
+std::optional<RegisterControl::FPRValue> RegisterControl::get_fpr(pid_t pid, FPRegister reg)
 {
   auto fpr_opt = get_all_fpr(pid);
   if (!fpr_opt) return std::nullopt;
@@ -157,7 +157,7 @@ std::optional<RegisterManager::FPRValue> RegisterManager::get_fpr(pid_t pid, FPR
 }
 
 // 设置单个浮点寄存器值
-bool RegisterManager::set_fpr(pid_t pid, FPRegister reg, const RegisterManager::FPRValue& value)
+bool RegisterControl::set_fpr(pid_t pid, FPRegister reg, const RegisterControl::FPRValue& value)
 {
   auto fpr_opt = get_all_fpr(pid);
   if (!fpr_opt) return false;
@@ -185,7 +185,7 @@ bool RegisterManager::set_fpr(pid_t pid, FPRegister reg, const RegisterManager::
 }
 
 // 获取单个调试寄存器
-std::optional<std::pair<uint64_t, uint32_t>> RegisterManager::get_dbg(pid_t pid, DBRegister reg)
+std::optional<std::pair<uint64_t, uint32_t>> RegisterControl::get_dbg(pid_t pid, DBRegister reg)
 {
   auto dbg_opt = get_all_dbg(pid);
   if (!dbg_opt) return std::nullopt;
@@ -202,7 +202,7 @@ std::optional<std::pair<uint64_t, uint32_t>> RegisterManager::get_dbg(pid_t pid,
 }
 
 // 设置单个调试寄存器
-bool RegisterManager::set_dbg(pid_t pid, DBRegister reg, uint64_t addr, uint32_t ctrl)
+bool RegisterControl::set_dbg(pid_t pid, DBRegister reg, uint64_t addr, uint32_t ctrl)
 {
   auto dbg_opt = get_all_dbg(pid);
   if (!dbg_opt) return false;
@@ -223,30 +223,30 @@ bool RegisterManager::set_dbg(pid_t pid, DBRegister reg, uint64_t addr, uint32_t
   return set_all_dbg(pid, dbg);
 }
 
-std::optional<uint64_t> RegisterManager::get_pc(pid_t pid)
+std::optional<uint64_t> RegisterControl::get_pc(pid_t pid)
 {
   return get_gpr(pid, GPRegister::PC);
 }
 
 // 设置程序计数器
-bool RegisterManager::set_pc(pid_t pid, uint64_t value)
+bool RegisterControl::set_pc(pid_t pid, uint64_t value)
 {
   return set_gpr(pid, GPRegister::PC, value);
 }
 
 // 获取栈指针
-std::optional<uint64_t> RegisterManager::get_sp(pid_t pid)
+std::optional<uint64_t> RegisterControl::get_sp(pid_t pid)
 {
   return get_gpr(pid, GPRegister::SP);
 }
 
 // 设置栈指针
-bool RegisterManager::set_sp(pid_t pid, uint64_t value)
+bool RegisterControl::set_sp(pid_t pid, uint64_t value)
 {
   return set_gpr(pid, GPRegister::SP, value);
 }
 
-const char* RegisterManager::get_gpr_name(GPRegister reg)
+const char* RegisterControl::get_gpr_name(GPRegister reg)
 {
   int index = static_cast<int>(reg);
   if (index >= 0 && index < static_cast<int>(GPRegister::MAX_REGISTERS))
@@ -255,7 +255,7 @@ const char* RegisterManager::get_gpr_name(GPRegister reg)
   return "unknown";
 }
 
-const char* RegisterManager::get_fpr_name(FPRegister reg)
+const char* RegisterControl::get_fpr_name(FPRegister reg)
 {
   int index = static_cast<int>(reg);
   if (index >= 0 && index < static_cast<int>(FPRegister::MAX_REGISTERS))
@@ -264,7 +264,7 @@ const char* RegisterManager::get_fpr_name(FPRegister reg)
   return "unknown";
 }
 
-const char* RegisterManager::get_dbg_name(DBRegister reg)
+const char* RegisterControl::get_dbg_name(DBRegister reg)
 {
   int index = static_cast<int>(reg);
   if (index >= 0 && index < static_cast<int>(DBRegister::MAX_REGISTERS))
@@ -273,7 +273,7 @@ const char* RegisterManager::get_dbg_name(DBRegister reg)
   return "unknown";
 }
 
-uint64_t* RegisterManager::get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg)
+uint64_t* RegisterControl::get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg)
 {
   if (reg >= GPRegister::X0 && reg <= GPRegister::X30)
   {
@@ -290,7 +290,7 @@ uint64_t* RegisterManager::get_gpr_pointer(struct user_pt_regs& regs, GPRegister
   }
 }
 
-const uint64_t* RegisterManager::get_gpr_pointer(const struct user_pt_regs& regs, GPRegister reg) const
+const uint64_t* RegisterControl::get_gpr_pointer(const struct user_pt_regs& regs, GPRegister reg) const
 {
   if (reg >= GPRegister::X0 && reg <= GPRegister::X30)
   {
@@ -307,7 +307,7 @@ const uint64_t* RegisterManager::get_gpr_pointer(const struct user_pt_regs& regs
   }
 }
 
-std::optional<RegisterManager::FPRMutablePtr> RegisterManager::get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg)
+std::optional<RegisterControl::FPRMutablePtr> RegisterControl::get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg)
 {
   if (reg >= FPRegister::V0 && reg <= FPRegister::V31)
   {
@@ -325,7 +325,7 @@ std::optional<RegisterManager::FPRMutablePtr> RegisterManager::get_fpr_pointer(s
   }
 }
 
-std::optional<RegisterManager::FPRConstPtr> RegisterManager::get_fpr_pointer(const struct user_fpsimd_state& fpr, FPRegister reg) const
+std::optional<RegisterControl::FPRConstPtr> RegisterControl::get_fpr_pointer(const struct user_fpsimd_state& fpr, FPRegister reg) const
 {
   if (reg >= FPRegister::V0 && reg <= FPRegister::V31)
   {
@@ -343,7 +343,7 @@ std::optional<RegisterManager::FPRConstPtr> RegisterManager::get_fpr_pointer(con
   }
 }
 
-std::pair<uint64_t*, uint32_t*> RegisterManager::get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg)
+std::pair<uint64_t*, uint32_t*> RegisterControl::get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg)
 {
   int index = static_cast<int>(reg);
   if (index >= static_cast<int>(DBRegister::DBG0) && index <= static_cast<int>(DBRegister::DBG15))
@@ -356,7 +356,7 @@ std::pair<uint64_t*, uint32_t*> RegisterManager::get_dbg_pointer(struct user_hwd
   }
 }
 
-const std::pair<const uint64_t*, const uint32_t*> RegisterManager::get_dbg_pointer(const struct user_hwdebug_state& dbg, DBRegister reg) const
+const std::pair<const uint64_t*, const uint32_t*> RegisterControl::get_dbg_pointer(const struct user_hwdebug_state& dbg, DBRegister reg) const
 {
   int index = static_cast<int>(reg);
   if (index >= static_cast<int>(DBRegister::DBG0) && index <= static_cast<int>(DBRegister::DBG15))
