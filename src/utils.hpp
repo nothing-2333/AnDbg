@@ -14,9 +14,16 @@ namespace Utils
 // ptrace 包装
 inline bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size, long* result = nullptr)
 {
+  // 参数检查
+  if (pid == -1)
+  {
+    LOG_ERROR("传入无效的 pid");
+    return false;
+  }
+
   long int ret = 0;
 
-  // // 重置 errno
+  // 重置 errno
   errno = 0;
 
   if (request == PTRACE_GETREGSET || request == PTRACE_SETREGSET)

@@ -36,10 +36,10 @@ public:
 
   // 单步步过
   bool step_over(pid_t tid = -1);
-
+  
   // 执行(直到断点或结束)
   bool run();
-
+  
   // 设置断点
   bool set_breakpoint();
 
@@ -85,6 +85,7 @@ public:
   ~LaunchInfo() {};
 
   char const *get_path() const { return path.c_str(); };
+  
   // 新程序的命令行参数 {"程序的路径", "参数1", "参数2", ..., NULL}
   char *const *get_argv() const
   { 
@@ -96,6 +97,7 @@ public:
     argv_buffer.push_back(nullptr);
     return argv_buffer.data();
   }        
+
   // 新程序的环境变量 {"KEY=VALUE", ..., NULL}
   char *const *get_envp() const
   {

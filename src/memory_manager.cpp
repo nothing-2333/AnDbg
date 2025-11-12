@@ -445,3 +445,8 @@ bool MemoryManager::dump_memory(pid_t pid, uint64_t start_address, uint64_t end_
     return false;
   }
 }
+
+uint64_t MemoryManager::allocate_memory(pid_t pid, size_t size, int prot)
+{
+
+}
