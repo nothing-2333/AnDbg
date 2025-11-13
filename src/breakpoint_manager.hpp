@@ -1,6 +1,7 @@
 #pragma once 
 
 #include <cstdint>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -69,8 +70,12 @@ struct ConditionalBreakpoint : public Breakpoint
 class BreakpointManager 
 {
 private:
-  std::vector<Breakpoint> m_breakpoints;  // 所有断点
-  std::unordered_map<pid_t, std::unordered_set<Breakpoint*>> m_tid_breakpoints;  // 线程-断点地址映射
+  std::vector<Breakpoint> m_breakpoints;                                          // 所有断点
+  std::unordered_map<pid_t, std::unordered_set<Breakpoint*>> m_tid_breakpoints;   // 线程-断点映射
+  std::unordered_set<int> m_free_hardware_regs;                                   // 空闲硬件断点寄存器
+  mutable std::recursive_mutex m_mutex;                                           // 线程安全
+
+  std::unordered_map<const Breakpoint*, std::shared_ptr<ConditionalBreakpoint>> m_conditional_breakpoints;  // 条件断点存储
   
 public:
   // 设置软件断点 

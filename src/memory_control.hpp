@@ -7,8 +7,9 @@
 #include <vector>
 #include <sys/mman.h> 
 
+#include "Log.hpp"
 #include "fmt/format.h"
-
+#include "singleton_base.hpp"
 
 struct MemoryRegion
 {
@@ -38,9 +39,17 @@ struct MemoryRegion
   }
 };
 
-class MemoryControl
+class MemoryControl : public SingletonBase<MemoryControl>
 {
 private:
+
+  // 友元声明, 允许基类访问子类的私有构造函数
+  friend class SingletonBase<MemoryControl>; 
+
+  // 私有化构造函数, 析构函数
+  MemoryControl() = default;
+  ~MemoryControl() = default;
+
   // 使用 ptrace 读取内存
   bool read_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size);
 
@@ -54,7 +63,6 @@ private:
   bool check_address_permission(pid_t pid, uint64_t address, size_t size, bool need_write);
 
 public:
-  explicit MemoryControl() {};
 
   // 读取内存
   bool read_memory(pid_t pid, uint64_t address, void* buffer, size_t size);

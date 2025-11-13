@@ -13,6 +13,8 @@
 #include <optional>
 #include <variant>
 
+#include "singleton_base.hpp"
+
 
 // 通用寄存器索引
 enum class GPRegister : int 
@@ -48,9 +50,17 @@ enum class DBRegister : int {
   MAX_REGISTERS
 };
 
-class RegisterControl
+class RegisterControl : public SingletonBase<RegisterControl>
 {
 private:
+
+  // 友元声明, 允许基类访问子类的私有构造函数
+  friend class SingletonBase<RegisterControl>; 
+
+  // 私有构造函数, 析构函数
+  RegisterControl() = default;
+  ~RegisterControl() = default;
+
   // ARM64 寄存器集类型
   enum class RegisterType : unsigned int 
   {
@@ -86,14 +96,6 @@ private:
   static const char* dbg_names[static_cast<int>(DBRegister::MAX_REGISTERS)];
 
 public: 
-  RegisterControl() = default;
-  ~RegisterControl() = default;
-
-  // 禁止拷贝和移动
-  RegisterControl(const RegisterControl&) = delete;
-  RegisterControl& operator=(const RegisterControl&) = delete;
-  RegisterControl(RegisterControl&&) = delete;
-  RegisterControl& operator=(RegisterControl&&) = delete;
 
   // 获取所有通用寄存器
   std::optional<struct user_pt_regs> get_all_gpr(pid_t pid);

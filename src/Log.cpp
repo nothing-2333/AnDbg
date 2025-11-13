@@ -2,16 +2,6 @@
 
 #include "Log.hpp"
 
-
-Log* Log::get_instance()
-{
-  if (instance == nullptr)
-  {
-    instance = new Log();
-  }
-  return instance;
-}
-
 void Log::add(LogLevel level, std::string content)
 {
   messages.emplace_back(std::pair(level, content));
