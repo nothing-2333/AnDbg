@@ -1,6 +1,5 @@
 #pragma once
 
-
 // 单例模板基类
 template <typename T>
 class SingletonBase 
