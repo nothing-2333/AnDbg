@@ -7,7 +7,6 @@
 #include <vector>
 #include <sys/mman.h> 
 
-#include "Log.hpp"
 #include "fmt/format.h"
 #include "singleton_base.hpp"
 

@@ -5,7 +5,7 @@
 #include <stdexcept>
 
 #include "breakpoint_manager.hpp"
-#include "Log.hpp"
+#include "log.hpp"
 #include "memory_control.hpp"
 #include "register_control.hpp"
 

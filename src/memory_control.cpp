@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "memory_control.hpp"
-#include "Log.hpp"
+#include "log.hpp"
 #include "fmt/format.h"
 #include "utils.hpp"
 

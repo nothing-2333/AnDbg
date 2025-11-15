@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "Log.hpp"
+#include "log.hpp"
 
 void Log::add(LogLevel level, std::string content)
 {

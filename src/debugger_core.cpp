@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "debugger_core.hpp"
-#include "Log.hpp"
+#include "log.hpp"
 #include "utils.hpp"
 
 
