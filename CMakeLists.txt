@@ -28,6 +28,12 @@ if(NOT EXISTS ${FMT_SOURCE_DIR}/CMakeLists.txt)
 endif()
 add_subdirectory(${FMT_SOURCE_DIR}) 
 
+set(CAPSTONE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/capstone)
+if(NOT EXISTS ${CAPSTONE_SOURCE_DIR}/CMakeLists.txt)
+  message(FATAL_ERROR "capstone 源码缺失")
+endif()
+add_subdirectory(${CAPSTONE_SOURCE_DIR}) 
+
 # 编译核心文件
 add_subdirectory(src)
 

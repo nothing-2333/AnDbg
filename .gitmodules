@@ -2,3 +2,7 @@
 	path = third_party/fmt
 	url = https://github.com/fmtlib/fmt.git
 	tag = 12.1.0
+[submodule "third_party/capstone"]
+	path = third_party/capstone
+	url = https://github.com/capstone-engine/capstone.git
+	tag = 5.0.6
