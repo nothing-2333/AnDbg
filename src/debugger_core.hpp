@@ -58,11 +58,14 @@ public:
   // 写入寄存器
   bool write_register();
 
-  // 注入 so
+  // 注入 ELF
+  bool inject_elf();
 
   // 获取相关内存布局
+  bool get_memory_layout();
 
-  // 解析 elf 文件
+  // 解析符号
+  bool resolve_symbol();
 
 };
 
@@ -74,9 +77,9 @@ class LaunchInfo
   std::vector<std::string> args;  // 参数
   std::vector<std::string> env;   // 环境
 
-    // 缓冲区: 存储转换后的 char* 指针(避免重复分配，mutable 允许 const 方法修改)
-    mutable std::vector<char*> argv_buffer;  // 用于 get_argv()
-    mutable std::vector<char*> envp_buffer;  // 用于 get_envp()
+  // 缓冲区: 存储转换后的 char* 指针(避免重复分配，mutable 允许 const 方法修改)
+  mutable std::vector<char*> argv_buffer;  // 用于 get_argv()
+  mutable std::vector<char*> envp_buffer;  // 用于 get_envp()
           
 public:
   LaunchInfo(std::string&& path_, std::vector<std::string>&& args_) : path(std::move(path_)), args(std::move(args_)) {};

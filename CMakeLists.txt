@@ -38,7 +38,7 @@ add_subdirectory(${CAPSTONE_SOURCE_DIR})
 add_subdirectory(src)
 
 # 链接
-target_link_libraries(AnDbg PRIVATE fmt::fmt log) # log 是 Android 系统日志库
+target_link_libraries(AnDbg PRIVATE fmt::fmt capstone log)
 
 # 全局 C++ 标准配置
 set_target_properties(AnDbg PROPERTIES

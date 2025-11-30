@@ -58,6 +58,8 @@ struct Breakpoint
   }
 
   bool operator==(const Breakpoint& other) const { return id == other.id; }
+
+  Breakpoint() = default;
 };
 
 // 断点管理
