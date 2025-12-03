@@ -4,7 +4,7 @@
 
 #include "capstone/capstone.h"
 #include "memory_control.hpp"
-#include "disassemble_core.hpp"
+#include "disassembly_core.hpp"
 #include "log.hpp"
 
 
