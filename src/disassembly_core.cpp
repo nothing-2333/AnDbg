@@ -11,41 +11,41 @@
 DisassembleCore::DisassembleCore()
 {
   // 初始化 capstone 
-  if (cs_open(CS_ARCH_ARM64, CS_MODE_ARM, &handle) != CS_ERR_OK) 
+  if (cs_open(CS_ARCH_ARM64, CS_MODE_ARM, &handle_) != CS_ERR_OK) 
   {
     LOG_ERROR(" 初始化 capstone 失败 ");
-    handle = 0;
-    instruction_cache = nullptr;
+    handle_ = 0;
+    instruction_cache_ = nullptr;
     return;
   }
 
   // 启用详细的指令输出
-  cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+  cs_option(handle_, CS_OPT_DETAIL, CS_OPT_ON);
 
   // 分配单条指令缓存
-  instruction_cache = cs_malloc(handle);
-  if (instruction_cache == nullptr) 
+  instruction_cache_ = cs_malloc(handle_);
+  if (instruction_cache_ == nullptr) 
   {
     LOG_ERROR(" 分配 capstone 指令缓存失败 ");
-    cs_close(&handle);
-    handle = 0;
-    instruction_cache = nullptr;
+    cs_close(&handle_);
+    handle_ = 0;
+    instruction_cache_ = nullptr;
     return;
   }
 }
 
 DisassembleCore::~DisassembleCore()
 {
-  if (handle != 0)
+  if (handle_ != 0)
   {
-    cs_close(&handle);
-    handle = 0;
+    cs_close(&handle_);
+    handle_ = 0;
   }
     
-  if (instruction_cache != nullptr)
+  if (instruction_cache_ != nullptr)
   {
-    cs_free(instruction_cache, 1);
-    instruction_cache = nullptr;
+    cs_free(instruction_cache_, 1);
+    instruction_cache_ = nullptr;
   }
 }
 
@@ -235,7 +235,7 @@ DisassembleResult DisassembleCore::convert_capstone_instruction(const cs_insn& i
 
 std::optional<DisassembleResult> DisassembleCore::disassemble_single(pid_t pid, uint64_t address)
 {
-  if (handle== 0 || !instruction_cache) 
+  if (handle_== 0 || !instruction_cache_) 
   {
     LOG_ERROR("capstone 未初始化或初始化失败");
     return std::nullopt;
@@ -253,10 +253,10 @@ std::optional<DisassembleResult> DisassembleCore::disassemble_single(pid_t pid, 
   }
 
   // 反汇编单条指令
-  size_t count = cs_disasm(handle, code, sizeof(code), address, 1, &instruction_cache);
+  size_t count = cs_disasm(handle_, code, sizeof(code), address, 1, &instruction_cache_);
   if (count > 0)
   {
-    DisassembleResult result = convert_capstone_instruction(instruction_cache[0]);
+    DisassembleResult result = convert_capstone_instruction(instruction_cache_[0]);
     return result;
   }
 
@@ -266,7 +266,7 @@ std::optional<DisassembleResult> DisassembleCore::disassemble_single(pid_t pid, 
 
 std::optional<std::vector<DisassembleResult>> DisassembleCore::disassemble(pid_t pid, uint64_t address, size_t max_count)
 {
-  if (handle== 0 || !instruction_cache) 
+  if (handle_== 0 || !instruction_cache_) 
   {
     LOG_ERROR("capstone 未初始化或初始化失败");
     return std::nullopt;

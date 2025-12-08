@@ -72,10 +72,10 @@ private:
   ~DisassembleCore();
 
   // capstone 句柄
-  csh handle;
+  csh handle_;
 
   // 缓存
-  cs_insn* instruction_cache;
+  cs_insn* instruction_cache_;
 
 public:
 
@@ -86,7 +86,7 @@ public:
   std::optional<std::vector<DisassembleResult>> disassemble(pid_t pid, uint64_t address, size_t max_count);
 
   // 检查 capstone 是否初始化成功
-  inline bool is_initialized() const { return handle != 0 && instruction_cache != nullptr; } 
+  inline bool is_initialized() const { return handle_ != 0 && instruction_cache_ != nullptr; } 
 
 private:
 

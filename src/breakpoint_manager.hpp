@@ -78,19 +78,19 @@ private:
   static constexpr uint64_t DBGBCR_MATCH_FULL = 0x0ULL << 12;   // 全地址匹配
 
   // 所有断点, 占内存
-  std::unordered_map<int, Breakpoint> m_breakpoints;                 
+  std::unordered_map<int, Breakpoint> m_breakpoints_;                 
   
   // 通过 pid 找断点 ID
-  std::unordered_map<pid_t, std::unordered_set<int>> m_tid_breakpoints;         
+  std::unordered_map<pid_t, std::unordered_set<int>> m_tid_breakpoints_;         
   
   // 空闲硬件断点寄存器
-  std::unordered_set<DBRegister> m_free_hardware_registers;
+  std::unordered_set<DBRegister> m_free_hardware_registers_;
 
   // 线程安全
-  mutable std::recursive_mutex m_mutex;                                   
+  mutable std::recursive_mutex m_mutex_;                                   
   
   // 下一个要分配的断点 ID
-  int m_next_breakpoint_id = 1;                                                   
+  int m_next_breakpoint_id_ = 1;                                                   
   
 public:
 

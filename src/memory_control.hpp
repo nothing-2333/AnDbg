@@ -80,4 +80,7 @@ public:
   
   // 在目标进程中分配内存
   uint64_t allocate_memory(pid_t pid, size_t size, int prot = PROT_READ | PROT_WRITE);
+
+  // 在目标进程中释放内存
+  bool free_memory(pid_t pid, uint64_t address, size_t size);
 };

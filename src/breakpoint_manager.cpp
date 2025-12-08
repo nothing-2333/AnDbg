@@ -13,7 +13,7 @@
 int BreakpointManager::get_hardware_register_count(pid_t pid)
 {
   // 加锁, 线程安全
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   int max_supported = 0;
   const uint64_t test_address = 0x10000000;
@@ -87,7 +87,7 @@ int BreakpointManager::get_hardware_register_count(pid_t pid)
 
   // 初始化空闲寄存器
   for (int i = 0; i < max_supported; ++i)
-    m_free_hardware_registers.insert(static_cast<DBRegister>(i));
+    m_free_hardware_registers_.insert(static_cast<DBRegister>(i));
 
   return max_supported;
 }
@@ -95,7 +95,7 @@ int BreakpointManager::get_hardware_register_count(pid_t pid)
 int BreakpointManager::set_software_breakpoint(pid_t tid, uint64_t address, BreakpointCondition condition)
 {
   // 加锁, 线程安全
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   auto& memory_control = MemoryControl::get_instance();
 
@@ -142,7 +142,7 @@ inline static BreakpointType convert_enum_type(HareWareBreakpointType type)
 int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, HareWareBreakpointType type, BreakpointCondition condition)
 {
   // 线程安全
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   // 入参校验
   if ((address & 0x3) != 0) 
@@ -153,15 +153,15 @@ int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, Hare
 
   // 分配硬件寄存器
   static const int hardware_breakpoint_count = get_hardware_register_count(tid);
-  if (m_free_hardware_registers.empty())
+  if (m_free_hardware_registers_.empty())
   {
     LOG_ERROR("无空闲硬件断点寄存器");
     return -1;
   }
 
   // 写入地址寄存器和控制寄存器
-  DBRegister reg = *m_free_hardware_registers.begin();
-  m_free_hardware_registers.erase(reg);
+  DBRegister reg = *m_free_hardware_registers_.begin();
+  m_free_hardware_registers_.erase(reg);
 
   auto& register_control = RegisterControl::get_instance();
   uint64_t control = DBGBCR_ENABLE | DBGBCR_EL0 | DBGBCR_MATCH_FULL;
@@ -175,13 +175,13 @@ int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, Hare
   if (!register_control.set_dbg(tid, reg, address, control))
   {
     LOG_ERROR("配置硬件寄存器失败");
-    m_free_hardware_registers.insert(reg);  // 归还寄存器
+    m_free_hardware_registers_.insert(reg);  // 归还寄存器
     return -1;
   }
 
   // 创建断点, 返回 id
   int id = new_breakpoint(tid, address, convert_enum_type(type), 0, condition);
-  m_breakpoints[id].hardware_register = reg;
+  m_breakpoints_[id].hardware_register = reg;
 
   return id;
 }
@@ -189,13 +189,13 @@ int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, Hare
 bool BreakpointManager::remove_breakpoint(int id)
 {
   // 线程安全
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   auto& memory_control = MemoryControl::get_instance();
 
   // 查找断点, 并检查
-  auto breakpont_item = m_breakpoints.find(id);
-  if (breakpont_item == m_breakpoints.end())
+  auto breakpont_item = m_breakpoints_.find(id);
+  if (breakpont_item == m_breakpoints_.end())
   {
     LOG_ERROR("未找到 ID: {} 的断点", id);
     return false;
@@ -225,14 +225,14 @@ bool BreakpointManager::remove_breakpoint(int id)
       register_control.set_dbg(breakpoint.tid, breakpoint.hardware_register, address, control);
     }
     // 归还寄存器到空闲集合
-    m_free_hardware_registers.insert(breakpoint.hardware_register);
+    m_free_hardware_registers_.insert(breakpoint.hardware_register);
   }
 
   // 清理断点元数据
-  m_tid_breakpoints[breakpoint.tid].erase(breakpoint.id);
-  if (m_tid_breakpoints[breakpoint.id].empty())
-    m_tid_breakpoints.erase(breakpoint.tid);
-  m_breakpoints.erase(breakpont_item);
+  m_tid_breakpoints_[breakpoint.tid].erase(breakpoint.id);
+  if (m_tid_breakpoints_[breakpoint.id].empty())
+    m_tid_breakpoints_.erase(breakpoint.tid);
+  m_breakpoints_.erase(breakpont_item);
 
   LOG_DEBUG("成功移除断点: ID = {}, TID = {}, 地址 = 0x{:x}", id, breakpoint.tid, breakpoint.address);
   return true;
@@ -240,11 +240,11 @@ bool BreakpointManager::remove_breakpoint(int id)
 
 bool BreakpointManager::check_breakpoint_condition(int breakpoint_id)
 {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
-  auto breakpoint_item = m_breakpoints.find(breakpoint_id);
+  auto breakpoint_item = m_breakpoints_.find(breakpoint_id);
   // 断点不存在或未启用
-  if (breakpoint_item == m_breakpoints.end() || !breakpoint_item->second.enabled)
+  if (breakpoint_item == m_breakpoints_.end() || !breakpoint_item->second.enabled)
   {
     LOG_DEBUG("断点 [ID: {}] 不存在或未启用", breakpoint_id);
     return false;
@@ -278,11 +278,11 @@ bool BreakpointManager::check_breakpoint_condition(int breakpoint_id)
 
 bool BreakpointManager::enable(int breakpoint_id)
 {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   // 查找断点
-  auto breakpoint_item = m_breakpoints.find(breakpoint_id);
-  if (breakpoint_item == m_breakpoints.end())
+  auto breakpoint_item = m_breakpoints_.find(breakpoint_id);
+  if (breakpoint_item == m_breakpoints_.end())
   {
     LOG_ERROR("启用断点失败: 未找到 ID = {} 的断点", breakpoint_id);
     return false;
@@ -333,11 +333,11 @@ bool BreakpointManager::enable(int breakpoint_id)
 
 bool BreakpointManager::disable(int breakpoint_id)
 {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   // 查找断点
-  auto breakpoint_item = m_breakpoints.find(breakpoint_id);
-  if (breakpoint_item == m_breakpoints.end()) 
+  auto breakpoint_item = m_breakpoints_.find(breakpoint_id);
+  if (breakpoint_item == m_breakpoints_.end()) 
   {
     LOG_ERROR("禁用断点失败: 未找到 ID = {} 的断点", breakpoint_id);
     return false;
@@ -389,10 +389,10 @@ bool BreakpointManager::disable(int breakpoint_id)
 
 std::vector<Breakpoint> BreakpointManager::get_breakpoints()
 {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   std::vector<Breakpoint> result;
-  for (const auto& [id, breakpoint] : m_breakpoints)
+  for (const auto& [id, breakpoint] : m_breakpoints_)
   {
     result.push_back(breakpoint);
   }
@@ -403,22 +403,22 @@ std::vector<Breakpoint> BreakpointManager::get_breakpoints()
 
 std::vector<Breakpoint> BreakpointManager::get_breakpoints(pid_t pid)
 {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
   std::vector<Breakpoint> result;
 
   // 现在 m_tid_breakpoints 中寻找
-  if (m_tid_breakpoints.find(pid) == m_tid_breakpoints.end())
+  if (m_tid_breakpoints_.find(pid) == m_tid_breakpoints_.end())
   {
     LOG_DEBUG("线程 {} 无关联断点", pid);
     return result;
   }
 
   // 再在 m_breakpoints 取元数据
-  for (int breakpoint_id : m_tid_breakpoints[pid])
+  for (int breakpoint_id : m_tid_breakpoints_[pid])
   {
-    auto breakpoint_it = m_breakpoints.find(breakpoint_id);
-    if (breakpoint_it != m_breakpoints.end()) result.push_back(breakpoint_it->second);
+    auto breakpoint_it = m_breakpoints_.find(breakpoint_id);
+    if (breakpoint_it != m_breakpoints_.end()) result.push_back(breakpoint_it->second);
     else LOG_WARNING("线程 {} 的断点 ID {} 不存在", pid, breakpoint_id);
   }
 
@@ -428,11 +428,11 @@ std::vector<Breakpoint> BreakpointManager::get_breakpoints(pid_t pid)
 
 std::optional<Breakpoint> BreakpointManager::get_breakpoint(int breakpoint_id)
 {
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::lock_guard<std::recursive_mutex> lock(m_mutex_);
 
-  if (m_breakpoints.find(breakpoint_id) != m_breakpoints.end())
+  if (m_breakpoints_.find(breakpoint_id) != m_breakpoints_.end())
   {
-    return m_breakpoints[breakpoint_id];
+    return m_breakpoints_[breakpoint_id];
   }
   return std::nullopt;
 }
@@ -441,15 +441,15 @@ int BreakpointManager::new_breakpoint(pid_t tid, uint64_t address, BreakpointTyp
   uint32_t original_instruction, BreakpointCondition condition)
 {
   // 构建
-  int breakpoint_id = m_next_breakpoint_id++;
+  int breakpoint_id = m_next_breakpoint_id_++;
 
   Breakpoint breakpoint(breakpoint_id, tid, address, type, condition);
   breakpoint.enabled = true;
   breakpoint.original_instruction = original_instruction;
 
   // 加入管理
-  m_breakpoints.emplace(breakpoint_id, breakpoint);
-  m_tid_breakpoints[tid].insert(breakpoint_id);
+  m_breakpoints_.emplace(breakpoint_id, breakpoint);
+  m_tid_breakpoints_[tid].insert(breakpoint_id);
 
   LOG_DEBUG("添加断点 [ID: {}, TID: {}, 地址: 0x{:x}]", breakpoint_id, tid, address);
 
@@ -458,7 +458,7 @@ int BreakpointManager::new_breakpoint(pid_t tid, uint64_t address, BreakpointTyp
 
 bool BreakpointManager::check_duplicate_breakpoint(pid_t tid, uint64_t address, BreakpointType type)
 {
-  for (const auto& [id, breakpoint] : m_breakpoints)
+  for (const auto& [id, breakpoint] : m_breakpoints_)
   {
     if (breakpoint.tid == tid && breakpoint.address == address && breakpoint.type == type)
     {
