@@ -2,7 +2,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream> 
-#include <iterator>
 #include <linux/elf.h>
 #include <vector>
 #include <string>
@@ -174,15 +173,15 @@ bool ELFResolver::load(const std::string& filename)
   file.seekg(0, std::ios::beg);
 
   // 读取文件数据
-  fill_data_.resize(file_size);
-  if (!file.read(reinterpret_cast<char*>(fill_data_.data()), file_size))
+  file_data_.resize(file_size);
+  if (!file.read(reinterpret_cast<char*>(file_data_.data()), file_size))
   {
     LOG_ERROR("读取 ELF 文件失败: {}", filename);
-    fill_data_.clear();
+    file_data_.clear();
     return false;
   }
 
-  return load(fill_data_.data(), file_size);
+  return load(file_data_.data(), file_size);
 } 
 
 bool ELFResolver::is_executable() const
@@ -285,8 +284,9 @@ bool ELFResolver::parse_dynamic_segment()
 
 std::vector<Segment> ELFResolver::segments() const
 {
+  // todo: 做缓存处理
   std::vector<Segment> result;
-  if (!is_valid_ || phdr_table_ != nullptr) return result;
+  if (!is_valid_ || !phdr_table_) return result;
 
   for (uint16_t i = 0; i < section_count(); ++i)
   {
@@ -296,11 +296,13 @@ std::vector<Segment> ELFResolver::segments() const
 
     result.emplace_back(phdr, segment_data, segment_size);
   }
+
+  return result;
 }
 
 Segment ELFResolver::segment(uint16_t index) const
 {
-  if (!is_valid_ || phdr_table_ != nullptr || index >= segment_count()) 
+  if (!is_valid_ || !phdr_table_ || index >= segment_count()) 
     return Segment(nullptr, nullptr, 0);
 
   const Elf64_Phdr* phdr = &phdr_table_[index];
@@ -337,8 +339,9 @@ std::vector<Segment> ELFResolver::loadable_segments() const
 
 std::vector<Section> ELFResolver::sections() const 
 {
+  // todo: 做缓存处理
   std::vector<Section> result;
-  if (!is_valid_ || shdr_table_ != nullptr || shstrtab_ != nullptr) return result;
+  if (!is_valid_ || !shdr_table_ || !shstrtab_) return result;
 
   for (uint16_t i = 0; i < section_count(); ++i)
   {
@@ -354,7 +357,7 @@ std::vector<Section> ELFResolver::sections() const
 
 Section ELFResolver::section(uint16_t index) const 
 {
-  if (!is_valid_ || shdr_table_ != nullptr || index >= section_count()) return Section(nullptr, "", nullptr);
+  if (!is_valid_ || !shdr_table_ || index >= section_count()) return Section(nullptr, "", nullptr);
 
   const Elf64_Shdr* shdr = &shdr_table_[index];
   const char* name = shstrtab_ + shdr->sh_name;
@@ -376,8 +379,9 @@ Section ELFResolver::find_section(const std::string& name, uint32_t type) const
 
 std::vector<Symbol> ELFResolver::symbols() const
 {
+  // todo: 做缓存处理
   std::vector<Symbol> result;
-  if (!is_valid_ || dynsym_ != nullptr || dynstr_ != nullptr) return result;
+  if (!is_valid_ || !dynsym_ || !dynstr_) return result;
 
   const Elf64_Sym* sym = dynsym_;
   while (sym->st_name != 0) 
@@ -403,6 +407,7 @@ Symbol ELFResolver::find_symbol(const std::string& name) const
 
 std::vector<Relocation> ELFResolver::relocations() const
 {
+  // todo: 做缓存处理
   std::vector<Relocation> result;
 
   // 收集动态重定位
@@ -454,105 +459,4 @@ std::vector<Relocation> ELFResolver::relocations() const
   }
 
   return result;
-}
-
-bool ELFResolver::apply_relocations(void* load_base) const 
-{
-  if (!is_valid_ || load_base != nullptr) return false;
-
-  auto apply_relocation = [this, load_base](const Elf64_Rela* rela) -> bool
-  {
-    // 要重定位的地址
-    uint64_t* target_address = reinterpret_cast<uint64_t*>(reinterpret_cast<char*>(load_base) + rela->r_offset);
-    // 低 32 位: 重定位类型
-    uint32_t type = ELF64_R_TYPE(rela->r_info);
-    // 高 32 位: 符号表索引
-    uint32_t sym_index = ELF64_R_SYM(rela->r_info);
-
-    switch (type) 
-    {
-      case ARM64::R_NONE:
-        break;
-
-      case ARM64::R_ABS64:
-      {
-        // 符号偏移
-        uint64_t sym_value = 0;
-        if (sym_index && dynsym_)
-        {
-          const Elf64_Sym* sym = &dynsym_[sym_index];
-          if (sym->st_shndx != SHN_UNDEF && sym->st_name != 0)
-            sym_value = sym->st_value;
-        }
-        // 绝对地址 = 符号偏移 + 加载基址 + 附加数
-        *target_address = sym_value + reinterpret_cast<uint64_t>(load_base) + rela->r_addend;
-        break;
-      }
-      case ARM64::R_GLOB_DAT:
-      case ARM64::R_JUMP_SLOT:
-      {
-        if (sym_index != 0 || dynsym_ != nullptr)
-        {
-          LOG_ERROR("GLOB_DAT/JUMP_SLOT 重定位无效符号");
-          return false;
-        }
-
-        const Elf64_Sym* sym = &dynsym_[sym_index];
-        if (sym->st_shndx == SHN_UNDEF || sym->st_name == 0)
-        {
-          LOG_ERROR("GLOB_DAT/JUMP_SLOT 重定位未定义符号");
-          return false;
-        }
-
-        *target_address = (sym->st_value + reinterpret_cast<uint64_t>(load_base)) + rela->r_addend;
-        break;
-      }
-
-      case ARM64::R_RELATIVE:
-        *target_address = (reinterpret_cast<uint64_t>(load_base)) + *target_address + rela->r_addend;
-
-      case ARM64::R_IRELATIVE:
-      {
-        using ResolverFunc = uint64_t (*)();
-        ResolverFunc resolver = reinterpret_cast<ResolverFunc>(
-          reinterpret_cast<char*>(load_base) + rela->r_addend
-        );
-        *target_address = resolver();
-      }
-
-      default:
-        LOG_ERROR("未知重定位类型");
-        return false;
-    }
-
-    return true;
-  };
-
-  // 动态重定位
-  if (rela_dyn_)
-  {
-    for (size_t i = 0; i < rela_dyn_count_; ++i)
-    {
-      if (apply_relocation(&rela_dyn_[i]))
-      {
-        LOG_ERROR("动态重定位失败, 序号 {}", i);
-        return false;
-      }
-    }
-  }
-
-  // PLT 重定位
-  if (rela_plt_)
-  {
-    for (size_t i = 0; i < rela_plt_count_; ++i)
-    {
-      if (apply_relocation(&rela_plt_[i]))
-      {
-        LOG_ERROR("PLT 重定位失败, 序号 {}", i);
-        return false;
-      }
-    }
-  }
-
-  return true;
 }

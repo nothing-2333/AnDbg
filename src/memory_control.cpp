@@ -11,10 +11,13 @@
 #include <string>
 #include <sys/uio.h>
 #include <vector>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #include "memory_control.hpp"
 #include "log.hpp"
 #include "fmt/format.h"
+#include "register_control.hpp"
 #include "utils.hpp"
 
 bool MemoryControl::read_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size)
@@ -448,5 +451,185 @@ bool MemoryControl::dump_memory(pid_t pid, uint64_t start_address, uint64_t end_
 
 uint64_t MemoryControl::allocate_memory(pid_t pid, size_t size, int prot)
 {
+  // 基础参数校验
+  if (pid <= 0) 
+  {
+    LOG_ERROR("无效的 PID: {}", pid);
+    return 0;
+  }
+  if (size == 0) 
+  {
+    LOG_ERROR("分配内存大小不能为 0");
+    return 0;
+  }
+  if ((prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC | PROT_NONE)) != 0)
+  {
+    LOG_ERROR("无效内存保护属性 prot: 0x{:x}", prot);
+    return 0;
+  }
 
+  // 内存大小页对齐处理
+  size = Utils::align_page(size);
+
+  // 保存原始寄存器
+  auto gpr_opt = RegisterControl::get_instance().get_all_gpr(pid);
+  if (!gpr_opt) 
+  {
+    LOG_ERROR("获取进程 {} 寄存器失败", pid);
+    return 0;
+  }
+  const auto& gpr = gpr_opt.value();
+
+  // 准备 mmap 系统调用参数
+  struct user_pt_regs regs = {0};
+  memcpy(&regs, &gpr, sizeof(user_pt_regs));  
+  regs.regs[8] = __NR_mmap;                   // 系统调用号
+  regs.regs[0] = 0;                           // 内核自动分配地址
+  regs.regs[1] = static_cast<uint64_t>(size); // 分配大小
+  regs.regs[2] = static_cast<uint64_t>(prot); // 内存保护属性
+  regs.regs[3] = MAP_PRIVATE | MAP_ANONYMOUS; // 匿名私有映射
+  regs.regs[4] = static_cast<uint64_t>(-1);   // 匿名映射无需文件描述符
+  regs.regs[5] = 0;                           // 页偏移量
+
+  // 设置寄存器
+  if (!RegisterControl::get_instance().set_all_gpr(pid, regs))
+  {
+    LOG_ERROR("设置进程 {} 寄存器失败", pid);
+    // 恢复原始寄存器
+    RegisterControl::get_instance().set_all_gpr(pid, gpr); 
+    return 0;
+  }
+
+  // 执行系统调用
+  if (!Utils::syscall_wrapper(pid))
+  {
+    LOG_ERROR("进程 {} 执行 mmap2 系统调用失败", pid);
+    RegisterControl::get_instance().set_all_gpr(pid, gpr); 
+    return 0;
+  }
+
+  // 获取系统调用返回值
+  auto result_gpr_opt = RegisterControl::get_instance().get_all_gpr(pid);
+  if (!result_gpr_opt)
+  {
+    LOG_ERROR("获取进程 {} 系统调用返回寄存器失败", pid);
+    RegisterControl::get_instance().set_all_gpr(pid, gpr); 
+    return 0; 
+  }
+  const auto& result_gpr = result_gpr_opt.value();
+  uint64_t mmap_address = result_gpr.regs[0];
+
+  // 校验返回值
+  int64_t signed_address = static_cast<int64_t>(mmap_address);
+  if (signed_address < 0 && signed_address >= -4095)
+  {
+    int error = static_cast<int>(-signed_address);
+    char err_buf[256] = {0};
+    strerror_r(error, err_buf, sizeof(err_buf));
+    LOG_ERROR("进程 {}: mmap2 系统调用失败, 大小: {} 字节, prot: 0x{:x}, 错误: {} ({})", 
+      pid, size, prot, error, err_buf);
+    RegisterControl::get_instance().set_all_gpr(pid, gpr);
+    return 0;
+  }
+
+  // 恢复原始寄存器
+  if (!RegisterControl::get_instance().set_all_gpr(pid, gpr))
+  {
+    LOG_ERROR("恢复进程 {} 寄存器失败", pid);
+    return 0; 
+  }
+
+  LOG_DEBUG("在进程 {} 中分配内存成功, 地址: 0x{:x}, 大小: {} 字节, prot: 0x{:x}", pid, mmap_address, size, prot);
+  return mmap_address;
+}
+
+bool MemoryControl::free_memory(pid_t pid, uint64_t address, size_t size)
+{
+  // 参数校验
+  if (pid <= 0) 
+  {
+    LOG_ERROR("无效的 PID: {}", pid);
+    return false;
+  }
+  if (size == 0)
+  {
+    LOG_ERROR("释放内存大小不能为 0");
+    return false;
+  }
+  if (address == 0 || reinterpret_cast<void*>(address) == MAP_FAILED)
+  {
+      LOG_ERROR("无效的内存地址: 0x{:x}", address);
+      return false;
+  }
+
+  // 对齐检查, munmap 要求地址和大小都页对齐
+  size = Utils::align_page(size);
+  address = Utils::align_page(address);
+
+  // 保存原始寄存器
+  auto gpr_opt = RegisterControl::get_instance().get_all_gpr(pid);
+  if (!gpr_opt) 
+  {
+      LOG_ERROR("获取进程 {} 寄存器失败", pid);
+      return false;
+  }
+  const auto& gpr = gpr_opt.value();
+
+  // 准备 munmap 系统调用参数
+  struct user_pt_regs regs = {0};
+  memcpy(&regs, &gpr, sizeof(user_pt_regs));
+
+  regs.regs[8] = __NR_munmap;                       // 系统调用号
+  regs.regs[0] = static_cast<uint64_t>(address);    // 要释放的地址
+  regs.regs[1] = static_cast<uint64_t>(size);       // 要释放的大小  
+
+  // 设置寄存器
+  if (!RegisterControl::get_instance().set_all_gpr(pid, regs))
+  {
+    LOG_ERROR("设置进程 {} 寄存器失败", pid);
+    RegisterControl::get_instance().set_all_gpr(pid, gpr); 
+    return false;
+  }
+
+  // 执行系统调用
+  if (!Utils::syscall_wrapper(pid))
+  {
+    LOG_ERROR("进程 {} 执行 munmap 系统调用失败", pid);
+    RegisterControl::get_instance().set_all_gpr(pid, gpr);
+    return false;
+  }
+
+  // 获取系统调用返回值
+  auto result_gpr_opt = RegisterControl::get_instance().get_all_gpr(pid);
+  if (!result_gpr_opt)
+  {
+    LOG_ERROR("获取进程 {} 系统调用返回寄存器失败", pid);
+    RegisterControl::get_instance().set_all_gpr(pid, gpr); 
+    return false;
+  }
+  const auto& result_gpr = result_gpr_opt.value();
+  uint64_t munmap_result = result_gpr.regs[0];
+
+  // 校验返回值
+  int64_t signed_result = static_cast<int64_t>(munmap_result);
+  if (signed_result != 0) 
+  {
+    int error = static_cast<int>(-signed_result);
+    char err_buf[256] = {0};
+    strerror_r(error, err_buf, sizeof(err_buf));
+    LOG_ERROR("进程 {}: munmap 系统调用失败, 地址: 0x{:x}, 大小: {} 字节, 错误: {} ({})", 
+      pid, address, size, error, err_buf);
+    RegisterControl::get_instance().set_all_gpr(pid, gpr);
+    return false;
+  }
+
+  // 恢复原始寄存器
+  if (!RegisterControl::get_instance().set_all_gpr(pid, gpr))
+  {
+    LOG_ERROR("恢复进程 {} 寄存器失败", pid);
+    return false; 
+  }
+
+  LOG_DEBUG("在进程 {} 中释放内存成功, 地址: 0x{:x}, 大小: {} 字节", pid, address, size);
+  return true;
 }

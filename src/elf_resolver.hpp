@@ -7,21 +7,6 @@
 #include <vector>
 
 
-// ARM64 特定定义
-namespace ARM64 
-{
-  // 重定位类型
-  static constexpr uint32_t R_NONE = 0;
-  static constexpr uint32_t R_ABS64 = 257;
-  static constexpr uint32_t R_ABS32 = 258;
-  static constexpr uint32_t R_ABS16 = 259;
-  static constexpr uint32_t R_GLOB_DAT = 1025;
-  static constexpr uint32_t R_JUMP_SLOT = 1026;
-  static constexpr uint32_t R_RELATIVE = 1027;
-  static constexpr uint32_t R_IRELATIVE = 1032;
-
-}
-
 // 段信息封装
 class Segment
 {
@@ -138,10 +123,10 @@ class ELFResolver
 {
 private:
 
+  // 保存文件数据
+  std::vector<uint8_t> file_data_;
   // 指向文件数据
   const uint8_t* data_;
-  // 保存文件数据(如果需要)
-  std::vector<uint8_t> fill_data_;
   // 文件大小
   size_t size_;
   // 是否已加载
@@ -223,7 +208,6 @@ public:
 
   // 重定位信息操作
   std::vector<Relocation> relocations() const;
-  bool apply_relocations(void* load_base) const;
 
 private:
 
