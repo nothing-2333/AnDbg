@@ -109,7 +109,7 @@ private:
 
 public:
 
-  Relocation(const Elf64_Rela* rela, uint32_t type, uint32_t sym_index, const std::string& sym_name, uint64_t addend)
+  Relocation(const Elf64_Rela* rela, uint32_t type, uint32_t sym_index, const std::string& sym_name, int64_t addend)
     : rela_(rela), type_(type), sym_index_(sym_index), sym_name_(sym_name), addend_(addend) {}
     
     uint64_t offset() const { return rela_ ? rela_->r_offset : 0; }
@@ -129,10 +129,14 @@ private:
   const uint8_t* data_;
   // 文件大小
   size_t size_;
-  // 是否已加载
-  bool is_loaded_;
   // 是否有效 ELF 文件
   bool is_valid_;
+
+  // 缓存
+  mutable std::vector<Segment> segments_cache;
+  mutable std::vector<Section> sections_cache;
+  mutable std::vector<Symbol> symbols_cache;
+  mutable std::vector<Relocation> relocations_cache;
   
   // ELF 头部
   const Elf64_Ehdr* header_;
@@ -147,6 +151,8 @@ private:
   const char* dynstr_;
   // 动态符号项
   const Elf64_Sym* dynsym_;
+  // 单个符号的大小
+  size_t sym_entry_size_;
   // 重定位项(PLT)
   const Elf64_Rela* rela_plt_;
   // 重定位项(DYN)
@@ -170,14 +176,13 @@ public:
   ELFResolver& operator=(ELFResolver&& other) noexcept;
 
   // 读取 ELF 信息
-  bool load(const void* data, size_t size);
+  bool load(const std::vector<uint8_t> file_data);
   bool load(const std::string& filename);
 
   // 清理资源
   void cleanup();
 
   // 状态查询
-  bool is_loaded() const { return is_loaded_; }
   bool is_valid() const { return is_valid_; }
 
   // 检查文件类型
@@ -203,16 +208,21 @@ public:
   Section find_section(const std::string& name, uint32_t type = 0) const;
 
   // 符号段操作
-  std::vector<Symbol> symbols() const;
+  std::vector<Symbol> symbols() const; 
   Symbol find_symbol(const std::string& name) const;
 
   // 重定位信息操作
   std::vector<Relocation> relocations() const;
 
 private:
+  // 实际加载函数
+  bool load(const void* data, size_t size);
 
   // 检验 ELF 文件格式
   bool validate_elf() const;
+
+  // 将虚拟地址转换为文件偏移
+  uint64_t virtual_to_file_offset(uint64_t vaddr) const;
 
   // 解析动态段
   bool parse_dynamic_segment();

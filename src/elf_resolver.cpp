@@ -10,9 +10,9 @@
 #include "log.hpp"
 
 ELFResolver::ELFResolver()
-  : data_(nullptr), size_(0), is_loaded_(false), is_valid_(false),
+  : data_(nullptr), size_(0), is_valid_(false),
     header_(nullptr), phdr_table_(nullptr), shdr_table_(nullptr),
-    shstrtab_(nullptr), dynstr_(nullptr), dynsym_(nullptr),
+    shstrtab_(nullptr), dynstr_(nullptr), dynsym_(nullptr), sym_entry_size_(0),
     rela_plt_(nullptr), rela_dyn_(nullptr),
     rela_plt_count_(0), rela_dyn_count_(0) {}
 
@@ -21,80 +21,66 @@ ELFResolver::~ELFResolver()
   cleanup();
 }
 
-ELFResolver& ELFResolver::operator=(ELFResolver&& other) noexcept
+ELFResolver::ELFResolver(ELFResolver&& other) noexcept
+  : data_(other.data_),
+    size_(other.size_),
+    is_valid_(other.is_valid_),
+    header_(other.header_),
+    phdr_table_(other.phdr_table_),
+    shdr_table_(other.shdr_table_),
+    shstrtab_(other.shstrtab_),
+    dynstr_(other.dynstr_),
+    dynsym_(other.dynsym_),
+    rela_plt_(other.rela_plt_),
+    rela_dyn_(other.rela_dyn_),
+    rela_plt_count_(other.rela_plt_count_),
+    rela_dyn_count_(other.rela_dyn_count_),
+    file_data_(std::move(other.file_data_)),
+    segments_cache(std::move(other.segments_cache)),
+    sections_cache(std::move(other.sections_cache)),
+    symbols_cache(std::move(other.symbols_cache)),
+    relocations_cache(std::move(other.relocations_cache))
 {
-  if (this != &other) 
-  {
-    cleanup();
-
-    data_ = other.data_;
-    size_ = other.size_;
-    is_loaded_ = other.is_loaded_;
-    is_valid_ = other.is_valid_;
-
-    header_ = other.header_;
-    phdr_table_ = other.phdr_table_;
-    shdr_table_ = other.shdr_table_;
-
-    shstrtab_ = other.shstrtab_;
-    dynstr_ = other.dynstr_;
-    dynsym_ = other.dynsym_;
-    rela_plt_ = other.rela_plt_;
-    rela_dyn_ = other.rela_dyn_;
-
-    rela_plt_count_ = other.rela_plt_count_;
-    rela_dyn_count_ = other.rela_dyn_count_;
-
-    other.data_ = nullptr;
-    other.size_ = 0;
-    other.is_loaded_ = false;
-    other.is_valid_ = false;
-
-    other.header_ = nullptr;
-    other.phdr_table_ = nullptr;
-    other.shdr_table_ = nullptr;
-
-    other.shstrtab_ = nullptr;
-    other.dynstr_ = nullptr;
-    other.dynsym_ = nullptr;
-    other.rela_plt_ = nullptr;
-    other.rela_dyn_ = nullptr;
-
-    other.rela_plt_count_ = 0;
-    other.rela_dyn_count_ = 0;
-  }
-
-  return *this;
+  other.cleanup();
 }
 
 void ELFResolver::cleanup()
 {
-  if (is_loaded_) 
-  {
-    data_ = nullptr;
-    size_ = 0;
-    is_loaded_ = false;
-    is_valid_ = false;
+  // 清理指针, 属性
+  data_ = nullptr;
+  size_ = 0;
+  is_valid_ = false;
 
-    header_ = nullptr;
-    phdr_table_ = nullptr;
-    shdr_table_ = nullptr;
+  header_ = nullptr;
+  phdr_table_ = nullptr;
+  shdr_table_ = nullptr;
 
-    shstrtab_ = nullptr;
-    dynstr_ = nullptr;
-    dynsym_ = nullptr;
-    rela_plt_ = nullptr;
-    rela_dyn_ = nullptr;
+  shstrtab_ = nullptr;
+  dynstr_ = nullptr;
+  dynsym_ = nullptr;
+  rela_plt_ = nullptr;
+  rela_dyn_ = nullptr;
 
-    rela_plt_count_ = 0;
-    rela_dyn_count_ = 0;
-  }
+  rela_plt_count_ = 0;
+  rela_dyn_count_ = 0;
+
+  // 释放文件数据
+  file_data_.clear();
+  file_data_.shrink_to_fit();
+
+  // 清理缓存
+  segments_cache.clear();
+  segments_cache.shrink_to_fit();
+  sections_cache.clear();
+  sections_cache.shrink_to_fit();
+  symbols_cache.clear();
+  symbols_cache.shrink_to_fit();
+  relocations_cache.clear();
+  relocations_cache.shrink_to_fit();
 }
 
 bool ELFResolver::load(const void* data, size_t size)
 {
-  cleanup();
-
   // 参数校验
   if (data == nullptr || size < sizeof(Elf64_Ehdr)) 
   {
@@ -104,8 +90,6 @@ bool ELFResolver::load(const void* data, size_t size)
 
   data_ = static_cast<const uint8_t*>(data);
   size_ = size;
-
-  is_loaded_ = true;
 
   // 解析 ELF 头部
   header_ = reinterpret_cast<const Elf64_Ehdr*>(data_);
@@ -160,8 +144,20 @@ bool ELFResolver::load(const void* data, size_t size)
   return true;
 }
 
+bool ELFResolver::load(const std::vector<uint8_t> file_data)
+{
+  cleanup();
+
+  // 保存文件数据
+  file_data_ = std::move(file_data);
+  return load(file_data_.data(), file_data_.size());
+}
+
 bool ELFResolver::load(const std::string& filename)
 {
+  cleanup();
+
+  // 读取文件
   std::ifstream file(filename, std::ios::binary | std::ios::ate);
   if (!file.is_open()) 
   {
@@ -172,7 +168,7 @@ bool ELFResolver::load(const std::string& filename)
   std::streamsize file_size = file.tellg();
   file.seekg(0, std::ios::beg);
 
-  // 读取文件数据
+  // 保存文件数据
   file_data_.resize(file_size);
   if (!file.read(reinterpret_cast<char*>(file_data_.data()), file_size))
   {
@@ -211,7 +207,7 @@ uint16_t ELFResolver::section_count() const
 
 bool ELFResolver::validate_elf() const
 {
-  if (!is_loaded_ || !header_) return false;
+  if (!header_) return false;
 
   // 检查 ELF 魔数
   if (header_->e_ident[EI_MAG0] != ELFMAG0 ||
@@ -247,10 +243,36 @@ bool ELFResolver::validate_elf() const
   return true;
 }
 
+uint64_t ELFResolver::virtual_to_file_offset(uint64_t vaddr) const
+{
+  auto load_segs = loadable_segments();
+
+  for (const auto& seg : load_segs)
+  {
+    uint64_t seg_vaddr = seg.virtual_address();
+    uint64_t seg_memsz = seg.memory_size();
+    uint64_t seg_offset = seg.offset();
+
+    // 检查 vaddr 是否在该段的虚拟地址范围内
+    if (vaddr >= seg_vaddr && vaddr < seg_vaddr + seg_memsz)
+    {
+      // 计算文件偏移: vaddr - 段虚拟地址 + 段文件偏移
+      return seg_offset + (vaddr - seg_vaddr);
+    }
+  }
+
+  // 未找到, 返回 0
+  return 0; 
+}
+
 bool ELFResolver::parse_dynamic_segment()
 {
   auto dynamic_segment = find_segment(PT_DYNAMIC);
-  if (dynamic_segment.size() == 0) return false;
+  if (dynamic_segment.size() == 0) 
+  {
+    LOG_WARNING("未找到动态段, 静态链接 ELF");
+    return true;
+  }
   
   const Elf64_Dyn* dynamic = static_cast<const Elf64_Dyn*>(dynamic_segment.data());
 
@@ -259,10 +281,21 @@ bool ELFResolver::parse_dynamic_segment()
     switch (dynamic->d_tag) 
     {
       case DT_STRTAB:
-        dynstr_ = reinterpret_cast<const char*>(data_ + dynamic->d_un.d_val);
+      {
+        uint64_t strtab_offset = virtual_to_file_offset(dynamic->d_un.d_ptr);
+        if (strtab_offset < size_)
+          dynstr_ = reinterpret_cast<const char*>(data_ + strtab_offset);
         break;
+      }
       case DT_SYMTAB:
-        dynsym_ = reinterpret_cast<const Elf64_Sym*>(data_ + dynamic->d_un.d_val);
+      {
+        uint64_t symtab_offset = virtual_to_file_offset(dynamic->d_un.d_ptr);
+        if (symtab_offset < size_)
+          dynsym_ = reinterpret_cast<const Elf64_Sym*>(data_ + symtab_offset);
+        break;
+      }
+      case DT_SYMENT:
+        sym_entry_size_ = dynamic->d_un.d_val;
         break;
       case DT_JMPREL:
         rela_plt_ = reinterpret_cast<const Elf64_Rela*>(data_ + dynamic->d_un.d_val);
@@ -279,25 +312,33 @@ bool ELFResolver::parse_dynamic_segment()
     }
   }
 
+  // 检查是否缺失关键数据
+  if (dynstr_ == nullptr || dynsym_ == nullptr || sym_entry_size_ == 0)
+  {
+    LOG_ERROR("动态段缺失关键信息");
+    return false;
+  }
+
   return true;
 }
 
 std::vector<Segment> ELFResolver::segments() const
 {
-  // todo: 做缓存处理
-  std::vector<Segment> result;
-  if (!is_valid_ || !phdr_table_) return result;
+  if (!is_valid_ || !phdr_table_) return {};
 
-  for (uint16_t i = 0; i < section_count(); ++i)
+  if (segments_cache.empty())
   {
-    const Elf64_Phdr* phdr = &phdr_table_[i];
-    const void* segment_data = data_ + phdr->p_offset;
-    size_t segment_size = std::min(phdr->p_filesz, size_ - phdr->p_offset);
+    for (uint16_t i = 0; i < segment_count(); ++i)
+    {
+      const Elf64_Phdr* phdr = &phdr_table_[i];
+      const void* segment_data = data_ + phdr->p_offset;
+      size_t segment_size = std::min(phdr->p_filesz, size_ - phdr->p_offset);
 
-    result.emplace_back(phdr, segment_data, segment_size);
+      segments_cache.emplace_back(phdr, segment_data, segment_size);
+    }
   }
-
-  return result;
+  
+  return segments_cache;
 }
 
 Segment ELFResolver::segment(uint16_t index) const
@@ -312,7 +353,7 @@ Segment ELFResolver::segment(uint16_t index) const
   return Segment(phdr, segment_data, segment_size);
 }
 
-Segment ELFResolver::find_segment(uint32_t type) const 
+Segment ELFResolver::find_segment(uint32_t type) const
 {
   auto segs = segments();
 
@@ -337,22 +378,23 @@ std::vector<Segment> ELFResolver::loadable_segments() const
   return result;
 }
 
-std::vector<Section> ELFResolver::sections() const 
+std::vector<Section> ELFResolver::sections() const
 {
-  // todo: 做缓存处理
-  std::vector<Section> result;
-  if (!is_valid_ || !shdr_table_ || !shstrtab_) return result;
+  if (!is_valid_ || !shdr_table_ || !shstrtab_) return {};
 
-  for (uint16_t i = 0; i < section_count(); ++i)
+  if (sections_cache.empty())
   {
-    const Elf64_Shdr* shdr = &shdr_table_[i];
-    const char* name = shstrtab_ + shdr->sh_name;
-    const void* section_data = data_ + shdr->sh_offset;
+    for (uint16_t i = 0; i < section_count(); ++i)
+    {
+      const Elf64_Shdr* shdr = &shdr_table_[i];
+      const char* name = shstrtab_ + shdr->sh_name;
+      const void* section_data = data_ + shdr->sh_offset;
 
-    result.emplace_back(shdr, name, section_data);
+      sections_cache.emplace_back(shdr, name, section_data);
+    }
   }
 
-  return result;
+  return sections_cache;
 }
 
 Section ELFResolver::section(uint16_t index) const 
@@ -379,19 +421,35 @@ Section ELFResolver::find_section(const std::string& name, uint32_t type) const
 
 std::vector<Symbol> ELFResolver::symbols() const
 {
-  // todo: 做缓存处理
-  std::vector<Symbol> result;
-  if (!is_valid_ || !dynsym_ || !dynstr_) return result;
+  if (!is_valid_ || !dynsym_ || !dynstr_) return {};
 
-  const Elf64_Sym* sym = dynsym_;
-  while (sym->st_name != 0) 
+  if (symbols_cache.empty())
   {
-    const char* name = dynstr_ + sym->st_name;
-    result.emplace_back(sym, name, sym->st_value);
-    ++sym;
+    const Elf64_Sym* sym = dynsym_;
+    // 能超出 ELF 数据的末尾, 且至少保留一个符号的空间
+    const uint8_t* sym_end = data_ + size_ - sym_entry_size_;
+    while (reinterpret_cast<const uint8_t*>(sym) <= sym_end) 
+    {
+      const char* name = "";
+      if (sym->st_name != 0 && dynstr_)
+      {
+        const char* sym_name = dynstr_ + sym->st_name;
+        if (sym_name >= dynstr_ && sym_name < reinterpret_cast<const char*>(data_ + size_))
+        {
+          name = sym_name;
+        }
+      }
+      symbols_cache.emplace_back(sym, name, sym->st_value);
+
+      // 下一个符号
+      sym = reinterpret_cast<const Elf64_Sym*>(reinterpret_cast<const uint8_t*>(sym) + sym_entry_size_);
+      // 遇到 st_name 为 0 且 st_value 为 0 的空符号, 停止遍历
+      if (sym->st_name == 0 && sym->st_value == 0)
+        break;
+    }
   }
 
-  return result;
+  return symbols_cache;
 }
 
 Symbol ELFResolver::find_symbol(const std::string& name) const
@@ -407,56 +465,56 @@ Symbol ELFResolver::find_symbol(const std::string& name) const
 
 std::vector<Relocation> ELFResolver::relocations() const
 {
-  // todo: 做缓存处理
-  std::vector<Relocation> result;
-
-  // 收集动态重定位
-  if (rela_dyn_)
+  if (relocations_cache.empty())
   {
-    for (size_t i = 0; i < rela_dyn_count_; ++i)
+    // 收集动态重定位
+    if (rela_dyn_)
     {
-      const Elf64_Rela* rela = &rela_dyn_[i];
-
-      // 低 32 位: 重定位类型
-      uint32_t type = ELF64_R_TYPE(rela->r_info);
-      // 高 32 位: 符号表索引
-      uint32_t sym_index = ELF64_R_SYM(rela->r_info);
-
-      std::string sym_name;
-      if (sym_index && dynsym_ && dynstr_)
+      for (size_t i = 0; i < rela_dyn_count_; ++i)
       {
-        const Elf64_Sym* sym = &dynsym_[sym_index];
-        if (sym->st_name)
-          sym_name = dynstr_ + sym->st_name;
-      }
+        const Elf64_Rela* rela = &rela_dyn_[i];
 
-      result.emplace_back(rela, type, sym_index, sym_name, rela->r_addend);
+        // 低 32 位: 重定位类型
+        uint32_t type = ELF64_R_TYPE(rela->r_info);
+        // 高 32 位: 符号表索引
+        uint32_t sym_index = ELF64_R_SYM(rela->r_info);
+
+        std::string sym_name;
+        if (sym_index && dynsym_ && dynstr_)
+        {
+          const Elf64_Sym* sym = &dynsym_[sym_index];
+          if (sym->st_name)
+            sym_name = dynstr_ + sym->st_name;
+        }
+
+        relocations_cache.emplace_back(rela, type, sym_index, sym_name, rela->r_addend);
+      }
+    }
+
+    // 收集 PLT 重定位
+    if (rela_plt_)
+    {
+      for (size_t i = 0; i < rela_plt_count_; ++i)
+      {
+        const Elf64_Rela* rela = &rela_plt_[i];
+
+        // 低 32 位: 重定位类型
+        uint32_t type = ELF64_R_TYPE(rela->r_info);
+        // 高 32 位: 符号表索引
+        uint32_t sym_index = ELF64_R_SYM(rela->r_info);
+
+        std::string sym_name;
+        if (sym_index && dynsym_ && dynstr_)
+        {
+          const Elf64_Sym* sym = &dynsym_[sym_index];
+          if (sym->st_name)
+            sym_name = dynstr_ + sym->st_name;
+        }
+
+        relocations_cache.emplace_back(rela, type, sym_index, sym_name, rela->r_addend);
+      }
     }
   }
 
-  // 收集 PLT 重定位
-  if (rela_plt_)
-  {
-    for (size_t i = 0; i < rela_plt_count_; ++i)
-    {
-      const Elf64_Rela* rela = &rela_plt_[i];
-
-      // 低 32 位: 重定位类型
-      uint32_t type = ELF64_R_TYPE(rela->r_info);
-      // 高 32 位: 符号表索引
-      uint32_t sym_index = ELF64_R_SYM(rela->r_info);
-
-      std::string sym_name;
-      if (sym_index && dynsym_ && dynstr_)
-      {
-        const Elf64_Sym* sym = &dynsym_[sym_index];
-        if (sym->st_name)
-          sym_name = dynstr_ + sym->st_name;
-      }
-
-      result.emplace_back(rela, type, sym_index, sym_name, rela->r_addend);
-    }
-  }
-
-  return result;
+  return relocations_cache;
 }
