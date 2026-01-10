@@ -1,5 +1,3 @@
-
-
 # 指定 NDK 路径
 set(ANDROID_NDK "$ENV{ANDROID_NDK_HOME}")
 if(NOT ANDROID_NDK)
