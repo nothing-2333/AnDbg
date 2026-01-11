@@ -9,7 +9,7 @@
 #include "log.hpp"
 #include "rpc_server.hpp"
 
-RpcServer::RpcServer()
+RPCServer::RPCServer()
 {
   // 注册一些默认处理函数
   register_handler("ping", [](std::vector<char>& params) -> std::vector<char> {
@@ -23,36 +23,36 @@ RpcServer::RpcServer()
   });
 }
 
-RpcServer::~RpcServer() 
+RPCServer::~RPCServer() 
 {
   stop();
 }
 
-bool RpcServer::is_running()
+bool RPCServer::is_running()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   return running_;
 }
 
-bool RpcServer::is_connected()
+bool RPCServer::is_connected()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   return connected_;
 }
 
-int RpcServer::get_port()
+int RPCServer::get_port()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   return port_;
 }
 
-void RpcServer::register_handler(const std::string& command, Handler handler)
+void RPCServer::register_handler(const std::string& command, Handler handler)
 {
   std::lock_guard<std::mutex> lock(mutex_);
   handlers_[command] = handler;
 }
 
-bool RpcServer::start(uint16_t port)
+bool RPCServer::start(uint16_t port)
 {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -101,13 +101,13 @@ bool RpcServer::start(uint16_t port)
 
   port_ = port;
   running_ = true;
-  server_thread_ = std::thread(&RpcServer::server_loop, this);
+  server_thread_ = std::thread(&RPCServer::server_loop, this);
 
   LOG_DEBUG("RPC 服务器启动, 端口 {}", port);
   return true;
 }
 
-void RpcServer::stop()
+void RPCServer::stop()
 {
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -132,7 +132,7 @@ void RpcServer::stop()
   LOG_DEBUG("RPC 服务器已停止");
 }
 
-void RpcServer::safe_close_fd(int& fd)
+void RPCServer::safe_close_fd(int& fd)
 {
   if (fd >= 0)
   {
@@ -141,7 +141,7 @@ void RpcServer::safe_close_fd(int& fd)
   }
 }
 
-void RpcServer::server_loop()
+void RPCServer::server_loop()
 {
   LOG_DEBUG("服务启动");
 
@@ -202,7 +202,7 @@ void RpcServer::server_loop()
   LOG_DEBUG("服务关闭");
 }
 
-void RpcServer::handle_client(int client_fd)
+void RPCServer::handle_client(int client_fd)
 {
   while (true)
   {
@@ -269,7 +269,7 @@ void RpcServer::handle_client(int client_fd)
   }
 }
 
-std::vector<char> RpcServer::read_message(int client_fd)
+std::vector<char> RPCServer::read_message(int client_fd)
 {
   // 读取消息长度 (8 字节)
   uint64_t net_length;
@@ -299,7 +299,7 @@ std::vector<char> RpcServer::read_message(int client_fd)
   return data;
 }
 
-bool RpcServer::send_message(int client_fd, const std::vector<char>& data)
+bool RPCServer::send_message(int client_fd, const std::vector<char>& data)
 {
   uint32_t length = static_cast<uint32_t>(data.size());
   uint32_t net_length = htonl(length);
@@ -321,7 +321,7 @@ bool RpcServer::send_message(int client_fd, const std::vector<char>& data)
   return true;
 }
 
-Message RpcServer::deserialize_message(const std::vector<char>& data)
+Message RPCServer::deserialize_message(const std::vector<char>& data)
 {
   Message message;
   
@@ -338,7 +338,7 @@ Message RpcServer::deserialize_message(const std::vector<char>& data)
   return message;
 }
 
-std::vector<char> RpcServer::serialize_message(const Message& message)
+std::vector<char> RPCServer::serialize_message(const Message& message)
 {
   std::vector<char> data;
   // 命令

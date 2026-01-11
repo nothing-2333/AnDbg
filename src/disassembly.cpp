@@ -4,11 +4,11 @@
 
 #include "capstone/capstone.h"
 #include "memory_control.hpp"
-#include "disassembly_core.hpp"
+#include "disassembly.hpp"
 #include "log.hpp"
 
 
-DisassembleCore::DisassembleCore()
+Disassembly::Disassembly()
 {
   // 初始化 capstone 
   if (cs_open(CS_ARCH_ARM64, CS_MODE_ARM, &handle_) != CS_ERR_OK) 
@@ -34,7 +34,7 @@ DisassembleCore::DisassembleCore()
   }
 }
 
-DisassembleCore::~DisassembleCore()
+Disassembly::~Disassembly()
 {
   if (handle_ != 0)
   {
@@ -49,7 +49,7 @@ DisassembleCore::~DisassembleCore()
   }
 }
 
-bool DisassembleCore::is_syscall_instruction(const cs_insn& insn)
+bool Disassembly::is_syscall_instruction(const cs_insn& insn)
 {
   LOG_DEBUG("没有指令信息使用 id 判断系统调用指令");
 
@@ -68,7 +68,7 @@ bool DisassembleCore::is_syscall_instruction(const cs_insn& insn)
   }
 }
 
-bool DisassembleCore::is_interrupt_instruction(const cs_insn& insn)
+bool Disassembly::is_interrupt_instruction(const cs_insn& insn)
 {
   LOG_DEBUG("没有指令信息使用 id 判断系统调用指令");
 
@@ -88,7 +88,7 @@ bool DisassembleCore::is_interrupt_instruction(const cs_insn& insn)
   }
 }
 
-bool DisassembleCore::is_exception_instruction(const cs_insn& insn)
+bool Disassembly::is_exception_instruction(const cs_insn& insn)
 {
   LOG_DEBUG("没有指令信息使用 id 判断系统调用指令");
 
@@ -183,7 +183,7 @@ bool is_return_instruction(const cs_insn& insn)
   }
 }
 
-DisassembleResult DisassembleCore::convert_capstone_instruction(const cs_insn& insn)
+DisassembleResult Disassembly::convert_capstone_instruction(const cs_insn& insn)
 {
   InstructionType type;
 
@@ -233,7 +233,7 @@ DisassembleResult DisassembleCore::convert_capstone_instruction(const cs_insn& i
   );
 }
 
-std::optional<DisassembleResult> DisassembleCore::disassemble_single(pid_t pid, uint64_t address)
+std::optional<DisassembleResult> Disassembly::disassemble_single(pid_t pid, uint64_t address)
 {
   if (handle_== 0 || !instruction_cache_) 
   {
@@ -264,7 +264,7 @@ std::optional<DisassembleResult> DisassembleCore::disassemble_single(pid_t pid, 
   return std::nullopt;
 }
 
-std::optional<std::vector<DisassembleResult>> DisassembleCore::disassemble(pid_t pid, uint64_t address, size_t max_count)
+std::optional<std::vector<DisassembleResult>> Disassembly::disassemble(pid_t pid, uint64_t address, size_t max_count)
 {
   if (handle_== 0 || !instruction_cache_) 
   {

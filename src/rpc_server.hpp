@@ -15,7 +15,7 @@ struct Message
 
 using Handler = std::function<std::vector<char>(std::vector<char>& content)>;
 
-class RpcServer
+class RPCServer
 {
 private:
   bool running_{false};
@@ -31,12 +31,12 @@ private:
   std::unordered_map<std::string, Handler> handlers_;
   
 public:
-  RpcServer();
-  ~RpcServer();
+  RPCServer();
+  ~RPCServer();
 
   // 禁止拷贝
-  RpcServer(const RpcServer&) = delete;
-  RpcServer& operator=(const RpcServer&) = delete;
+  RPCServer(const RPCServer&) = delete;
+  RPCServer& operator=(const RPCServer&) = delete;
 
   // 启动服务器
   bool start(uint16_t port=5073);

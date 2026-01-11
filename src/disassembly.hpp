@@ -60,16 +60,16 @@ struct DisassembleResult
 
 };
 
-class DisassembleCore : public SingletonBase<DisassembleCore>
+class Disassembly : public SingletonBase<Disassembly>
 {
 private:
 
   // 友元声明, 允许基类访问子类的私有构造函数
-  friend class SingletonBase<DisassembleCore>; 
+  friend class SingletonBase<Disassembly>; 
 
   // 私有构造函数, 析构函数
-  DisassembleCore();
-  ~DisassembleCore();
+  Disassembly();
+  ~Disassembly();
 
   // capstone 句柄
   csh handle_;

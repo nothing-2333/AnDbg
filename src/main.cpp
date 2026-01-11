@@ -1,8 +1,14 @@
-#include <iostream>
+#include "rpc_server.hpp"
+#include "debugger_core.hpp"
 
 
 int main()
 {
-  std::cout << "啊啊啊" << std::endl;
+  DebuggerCore debugger;
+  RPCServer server;
+
+  
+  server.start();
+
   return 0;
 }
