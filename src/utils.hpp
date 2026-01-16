@@ -112,6 +112,17 @@ inline std::vector<pid_t> get_thread_ids(pid_t pid)
   return std::move(tids); 
 }
 
+// 对齐函数
+inline uint64_t align_up(uint64_t address, uint64_t alignment)
+{
+  return (address + alignment - 1) & ~(alignment - 1);
+}
+
+inline uint64_t align_down(uint64_t address, uint64_t alignment)
+{
+  return address & ~(alignment - 1);
+}
+
 // 页对齐
 inline uint64_t align_page(uint64_t address)
 {
@@ -121,12 +132,8 @@ inline uint64_t align_page(uint64_t address)
     LOG_WARNING("获取系统页面大小失败, 使用默认大小 4096 字节");
     page_size = 4096;
   }
-  if (address % page_size != 0) 
-  {
-    address = ((address + page_size - 1) / page_size) * page_size;
-  }
 
-  return address;
+  return align_up(address, static_cast<uint64_t>(page_size));
 }
 
 
