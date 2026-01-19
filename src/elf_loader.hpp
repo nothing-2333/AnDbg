@@ -1,5 +1,7 @@
 #pragma once 
 
+#include <cstddef>
+#include <cstdint>
 #include <stddef.h>
 #include <unordered_map>
 #include <vector>
@@ -7,77 +9,74 @@
 #include "elf_resolver.hpp"
 #include "memory_control.hpp"
 
+using SymbolTable = std::unordered_map<std::string, uint64_t>;
+
+// 加载信息结构
 struct LoadInfo
 {
-  void* base_address;               // 加载基址
-  size_t load_size;                 // 加载大小
-  uint64_t entry_point;             // 入口点
-  std::vector<void*> segments;      // 已加载的段地址
-  std::vector<MemoryRegion> memory_regions;
+  uint64_t load_base;                            // 加载基地址
+  uint64_t entry_point;                       // 程序入口点
+  std::vector<MemoryRegion> loaded_segments;  // 已加载的段
+  SymbolTable symbol_table;                   // 符号表
 };
+
 
 class ELFLoader
 {
 public:
-  using SymbolTable = std::unordered_map<std::string, void*>;
-  using Dependencies = std::vector<std::shared_ptr<ELFLoader>>;
-  
-  ELFLoader() = default;
-  ~ELFLoader();
+  ELFLoader();
+  ~ELFLoader() = default;
   
   // 禁止拷贝
   ELFLoader(const ELFLoader&) = delete;
   ELFLoader& operator=(const ELFLoader&) = delete;
   
-  // 允许移动
-  ELFLoader(ELFLoader&& other) noexcept;
-  ELFLoader& operator=(ELFLoader&& other) noexcept;
 
 private:
-  ELFResolver resolver_;
-  LoadInfo load_info_;
-  SymbolTable symbol_table_;
-  Dependencies dependencies_;
+  MemoryControl* memory_control_;
 
 public:
   // 加载 ELF 文件
-  LoadInfo load_elf_binary(const std::string& filename, void* base_addr = nullptr);
-  LoadInfo load_elf_binary(const void* data, size_t size, void* base_addr = nullptr);
+  LoadInfo load_elf(const std::string& filename, pid_t target_pid = -1, uint64_t preferred_base = 0, SymbolTable external_symbols = {});
+  LoadInfo load_elf(std::vector<uint8_t> file_data, pid_t target_pid = -1, uint64_t preferred_base = 0, SymbolTable external_symbols = {});
 
-  // 解析符号并链接
-  bool link(const SymbolTable& external_symbols = {});
+  // 卸载 elf
+  void unload_elf(pid_t target_pid, LoadInfo& info);
 
-  // 获取加载信息
-  const LoadInfo& get_load_info() const { return load_info_; }
-
-  // 获取符号表
-  const SymbolTable& get_symbols() const { return symbol_table_; }
-
-  // 获取依赖项
-  const Dependencies& get_dependencies() const { return dependencies_; }
-
-  // 添加依赖项
-  void add_dependency(std::shared_ptr<ELFLoader> dep) { dependencies_.push_back(dep); }
-
-  // 查找符号
-  void* find_symbol(const std::string& name) const;
 
 private:
-  // 加载段
-  bool load_segments(void* base_addr);
+  // 实际实现的函数
+  LoadInfo load_elf(pid_t target_pid, const ELFResolver& resolver, uint64_t base_addr, SymbolTable external_symbols);
 
-  // 处理动态段
-  bool process_dynamic_segment(void* base_addr);
+  // 确定加载基地址
+  std::optional<uint64_t> determine_load_base(pid_t target_pid, const std::vector<Segment>& segments, uint64_t preferred_base);
 
-  // 处理重定位
-  bool process_relocations(void* base_addr, const SymbolTable& external_symbols);
+  // 计算要加载到内存的总大小 
+  size_t calculate_load_segments_total_size(const std::vector<Segment>& segments);
 
-  // 处理单个重定位条目
-  bool apply_relocation(const Relocation& reloc, void* base_addr, const SymbolTable& symbol_table, void* reloc_addr);
+  // 找到一个大小足够的内存空间
+  std::optional<uint64_t> find_available_address(pid_t target_pid, size_t total_size, uint64_t preferred_base);
 
-  // 查找符号地址
-  void* resolve_symbol_address(const std::string& name, const SymbolTable& symbol_table) const;
+  // 判断某地址空间是否足够
+  bool is_available_address(pid_t target_pid, uint64_t preferred_base, size_t total_size);
 
-  // 构建内部符号表
-  void build_symbol_table(void* base_addr);
+  // 加载段到内存
+  bool load_segments(pid_t target_pid, const std::vector<Segment>& segments, uint64_t load_base, LoadInfo& info);
+  
+  // 应用重定位
+  bool apply_relocations(pid_t target_pid, const ELFResolver& resolver, uint64_t load_base, const LoadInfo& info, const SymbolTable& external_symbols);
+  
+  // 应用单个重定位
+  bool apply_relocation(pid_t target_pid, const Relocation& reloc, uint64_t load_base, const LoadInfo& info, const SymbolTable& external_symbols);
+  
+  // 解析符号地址
+  uint64_t resolve_symbol(const std::string& name, uint64_t load_base, const LoadInfo& info, const SymbolTable& external_symbols, const ELFResolver& resolver);
+  
+  // 设置内存保护
+  bool set_memory_protections(pid_t target_pid, const std::vector<Segment>& segments, uint64_t load_base);
+  
+  // 构建符号表
+  void build_symbol_table(uint64_t load_base, const ELFResolver& resolver, LoadInfo& info);
+
+
 };

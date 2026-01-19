@@ -105,7 +105,7 @@ bool Disassembly::is_exception_instruction(const cs_insn& insn)
   }
 }
 
-bool is_unconditional_branch_instruction(const cs_insn& insn)
+bool Disassembly::is_unconditional_branch_instruction(const cs_insn& insn)
 {
   // 使用指令 id 判断分支指令
   switch (insn.id) 
@@ -123,7 +123,7 @@ bool is_unconditional_branch_instruction(const cs_insn& insn)
   }
 }
 
-bool is_conditional_branch_instruction(const cs_insn& insn)
+bool Disassembly::is_conditional_branch_instruction(const cs_insn& insn)
 {
   // 使用指令 id 判断分支指令
   switch (insn.id) 
@@ -141,7 +141,7 @@ bool is_conditional_branch_instruction(const cs_insn& insn)
   }
 }
 
-bool is_authenticated_branch_instruction(const cs_insn& insn)
+bool Disassembly::is_authenticated_branch_instruction(const cs_insn& insn)
 {
   // 使用指令 id 判断分支指令
   switch (insn.id) 
@@ -162,7 +162,7 @@ bool is_authenticated_branch_instruction(const cs_insn& insn)
   }
 }
 
-bool is_return_instruction(const cs_insn& insn)
+bool Disassembly::is_return_instruction(const cs_insn& insn)
 {
   // 使用指令 id 判断分支指令
   switch (insn.id) 

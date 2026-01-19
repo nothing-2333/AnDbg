@@ -102,14 +102,6 @@ bool MemoryControl::parse_maps_line(const std::string& line, MemoryRegion& regio
 {
   std::istringstream iss(line);
   std::string address_range;
-  std::string offset_string;
-  std::string inode_string;
-
-  if (!(iss >> address_range >> region.permissions >> offset_string >> region.dev >> inode_string))
-  {
-    LOG_ERROR("解析 maps 行失败, 字段不足: {}", line);
-    return false;
-  }
 
   // 解析地址范围
   size_t hyphen_position = address_range.find('-');
@@ -153,38 +145,6 @@ bool MemoryControl::parse_maps_line(const std::string& line, MemoryRegion& regio
   // 验证权限字段格式
   if (region.permissions.empty() || region.permissions.size() > 5)
     LOG_WARNING("权限字段格式异常: {} | 行内容: {}", region.permissions, line);
-
-  // 解析文件偏移量
-  try 
-  {
-    region.file_offset = std::stoull(offset_string, nullptr, 16);
-  } 
-  catch (const std::invalid_argument& e) 
-  {
-    LOG_ERROR("偏移量解析失败, 非十六进制: {} | 错误: {}", offset_string, e.what());
-    return false;
-  }
-  catch (const std::out_of_range& e)
-  {
-    LOG_ERROR("偏移量超出 uint64_t 范围: {} | 错误: {}", offset_string, e.what());
-    return false;
-  }
-
-  // 解析 inode 编号
-  try 
-  {
-      region.inode = std::stoull(inode_string);
-  } 
-  catch (const std::invalid_argument& e) 
-  {
-    LOG_ERROR("inode 解析失败, 非数字: {} | 行内容: {}", inode_string, line);
-    return false;
-  } 
-  catch (const std::out_of_range& e) 
-  {
-    LOG_ERROR("inode 超出 uint64_t 范围: {} | 行内容: {}", inode_string, line);
-    return false;
-  }
 
   // 解析路径名
   std::getline(iss >> std::ws, region.pathname);
