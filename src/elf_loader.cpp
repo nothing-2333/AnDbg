@@ -1,8 +1,10 @@
 #include "elf_loader.hpp"
 #include "elf_resolver.hpp"
 #include "log.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <unistd.h>
 
 
 ELFLoader::ELFLoader()
@@ -34,7 +36,8 @@ LoadInfo ELFLoader::load_elf(pid_t target_pid, const ELFResolver& resolver, uint
 
   if (target_pid == -1)
   {
-
+    // 默认 target_pid == -1, 使用自身 pid
+    target_pid = getpid();
   }
 
   if (resolver.is_valid())
@@ -111,12 +114,43 @@ std::optional<uint64_t> ELFLoader::determine_load_base(pid_t target_pid, const s
   return address_opt;
 }
 
-std::optional<uint64_t> find_available_address(pid_t target_pid, size_t total_size, uint64_t preferred_base)
+size_t ELFLoader::calculate_load_segments_total_size(const std::vector<Segment>& segments)
 {
-  uint64_t start_address = 0x400000;
+  if (segments.empty())
+    return 0;
 
-  if (preferred_base != 0)
-    start_address = preferred_base;
+  // 找到最低和最高的虚拟地址
+  uint64_t min_vaddr = UINT64_MAX;
+  uint64_t max_vaddr_end = 0;
 
-  
+  for (const auto segment : segments)
+  {
+    if (segment.is_loadable())
+    {
+      uint64_t seg_vaddr = segment.virtual_address();
+      uint64_t seg_vaddr_end = seg_vaddr + segment.memory_size();
+
+      min_vaddr = std::min(min_vaddr, seg_vaddr);
+      max_vaddr_end = std::max(max_vaddr_end, seg_vaddr_end);
+    }
+  }
+
+  if (min_vaddr == UINT64_MAX || max_vaddr_end == 0)
+    return 0;
+
+  size_t total_size = max_vaddr_end - min_vaddr;
+  LOG_DEBUG("计算加载段总大小: 最小地址=0x{:x}, 最大结束地址=0x{:x}, 总大小=0x{:x}", min_vaddr, max_vaddr_end, total_size);
+
+  return total_size;
+}
+
+std::optional<uint64_t> ELFLoader::find_available_address(pid_t target_pid, size_t total_size, uint64_t preferred_base)
+{
+  // 检查大小
+  if (total_size <= 0)
+  {
+    LOG_ERROR("加载段总大小为 0");
+    return false;
+  }
+
 }

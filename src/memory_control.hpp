@@ -80,4 +80,10 @@ public:
 
   // 在目标进程中释放内存
   bool free_memory(pid_t pid, uint64_t address, size_t size);
+
+  // 寻找空间大小合适的内存
+  uint64_t find_vacant_memory(pid_t pid, size_t total_size);
+
+  // 判断某地址空间是否足够
+  bool can_capacity(pid_t pid, uint64_t target_address, size_t total_size);
 };

@@ -57,9 +57,6 @@ private:
   // 找到一个大小足够的内存空间
   std::optional<uint64_t> find_available_address(pid_t target_pid, size_t total_size, uint64_t preferred_base);
 
-  // 判断某地址空间是否足够
-  bool is_available_address(pid_t target_pid, uint64_t preferred_base, size_t total_size);
-
   // 加载段到内存
   bool load_segments(pid_t target_pid, const std::vector<Segment>& segments, uint64_t load_base, LoadInfo& info);
   

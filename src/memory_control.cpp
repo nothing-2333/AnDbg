@@ -20,6 +20,10 @@
 #include "register_control.hpp"
 #include "utils.hpp"
 
+
+const uint64_t MEM64_START = 0x10000;
+const uint64_t MEM64_END = 0x7FFFFFFFFFFF;
+
 bool MemoryControl::read_memory_ptrace(pid_t pid, uint64_t address, void* buffer, size_t size)
 {
   uint8_t* byte_buffer = static_cast<uint8_t*>(buffer);
@@ -95,6 +99,12 @@ std::vector<MemoryRegion> MemoryControl::get_memory_regions(pid_t pid)
     }
   }
 
+  // 按起始地址排序
+  std::sort(regions.begin(), regions.end(),
+    [](const MemoryRegion& a, const MemoryRegion& b) {
+      return a.start_address < b.start_address;
+  });
+
   return regions;
 }
 
@@ -102,6 +112,7 @@ bool MemoryControl::parse_maps_line(const std::string& line, MemoryRegion& regio
 {
   std::istringstream iss(line);
   std::string address_range;
+  iss >> address_range;
 
   // 解析地址范围
   size_t hyphen_position = address_range.find('-');
@@ -115,7 +126,7 @@ bool MemoryControl::parse_maps_line(const std::string& line, MemoryRegion& regio
   {
     region.start_address = std::stoull(address_range.substr(0, hyphen_position), nullptr, 16);
     region.end_address = std::stoull(address_range.substr(hyphen_position + 1), nullptr, 16);
-    region.size = region.end_address = region.start_address;
+    region.size = region.end_address - region.start_address;
 
     // 验证区域有效性
     if (region.size == 0)
@@ -161,7 +172,7 @@ bool MemoryControl::parse_maps_line(const std::string& line, MemoryRegion& regio
 bool MemoryControl::check_address_permission(pid_t pid, uint64_t address, size_t size, bool need_write)
 {
   if (size <= 0) {
-    LOG_ERROR("size 必须大于等于 0");
+    LOG_ERROR("size 必须大于 0");
     return false;
   }
 
@@ -199,22 +210,22 @@ bool MemoryControl::check_address_permission(pid_t pid, uint64_t address, size_t
       return false;
     }
 
-    const auto& current_regoin = *region_item;
+    const auto& current_region = *region_item;
 
     // 权限校验
-    if (!current_regoin.is_readable())
+    if (!current_region.is_readable())
     {
-      LOG_ERROR("内存 0x{:x}-0x{:x} 不可读", current_regoin.start_address, current_regoin.end_address);
+      LOG_ERROR("内存 0x{:x}-0x{:x} 不可读", current_region.start_address, current_region.end_address);
       return false;
     }
-    if (need_write && current_regoin.is_writable())
+    if (need_write && !current_region.is_writable())
     {
-      LOG_ERROR("内存 0x{:x}-0x{:x} 不可写", current_regoin.start_address, current_regoin.end_address);
+      LOG_ERROR("内存 0x{:x}-0x{:x} 不可写", current_region.start_address, current_region.end_address);
       return false;
     }
 
     // 继续检查下一个区域
-    current_address = current_regoin.end_address;
+    current_address = current_region.end_address;
     ++region_item;
   }
 
@@ -257,7 +268,7 @@ bool MemoryControl::write_memory(pid_t pid, uint64_t address, const void* buffer
   }
 
   // 检查地址权限
-  if (!check_address_permission(pid, address, size, false))
+  if (!check_address_permission(pid, address, size, true))
   {
     LOG_ERROR("没有写入权限, address: 0x{:x}", address);
     return false;
@@ -591,5 +602,94 @@ bool MemoryControl::free_memory(pid_t pid, uint64_t address, size_t size)
   }
 
   LOG_DEBUG("在进程 {} 中释放内存成功, 地址: 0x{:x}, 大小: {} 字节", pid, address, size);
+  return true;
+}
+
+uint64_t MemoryControl::find_vacant_memory(pid_t pid, size_t total_size)
+{
+  if (pid <= 0)
+  {
+    LOG_ERROR("无效的 PID: {}", pid);
+    return 0;
+  }
+  if (total_size == 0)
+  {
+    LOG_ERROR("内存大小不能为 0");
+    return 0;
+  }
+
+  // 页对齐
+  total_size = Utils::align_page(total_size);
+
+  // 获取所有内存区域
+  std::vector<MemoryRegion> regions = get_memory_regions(pid);
+  if (regions.empty()) 
+  {
+    LOG_ERROR("无法获取进程 {} 的内存映射信息", pid);
+    return 0;
+  }
+
+  uint64_t prev_end = MEM64_END;
+
+  // 遍历所有已映射区域, 查找区域之间的空闲间隙
+  for (const auto& region : regions)
+  {
+    uint64_t gap_start = prev_end;
+    uint64_t gap_end   = region.start_address;
+    uint64_t gap_size  = gap_end - gap_start;
+
+    // 找到足够大的空闲间隙
+    if (gap_size >= total_size)
+    {
+      LOG_DEBUG("找到空闲内存区间: 0x{:x}-0x{:x}, 大小:0x{:x}, 满足需求:0x{:x}", gap_start, gap_end, gap_size, total_size);
+      return gap_start;
+    }
+
+    prev_end = region.end_address;
+  }
+
+  // 检查最后一个区域到内存上限的间隙
+  if (MEM64_END - prev_end >= total_size)
+  {
+    LOG_DEBUG("找到尾部空闲内存区间:0x{:x}-0x{:x}, 满足需求", prev_end, MEM64_END);
+    return prev_end;
+  }
+
+  // 无足够大的空闲内存
+  LOG_ERROR("进程 {} 无足够连续空闲内存, 需要:{} bytes", pid, total_size);
+  return 0;
+}
+
+bool MemoryControl::can_capacity(pid_t pid, uint64_t target_address, size_t total_size)
+{
+  if (pid <= 0 || target_address == 0 || total_size == 0)
+  {
+    LOG_ERROR("无效参数: pid={}, addr=0x{:x}, size={}", pid, target_address, total_size);
+    return false;
+  }
+
+  total_size = Utils::align_page(total_size);
+  const uint64_t target_end = target_address + total_size;
+
+  std::vector<MemoryRegion> regions = get_memory_regions(pid);
+  if (regions.empty())
+  {
+    LOG_ERROR("无法获取进程 {} 内存映射", pid);
+    return false;
+  }
+
+  // 检查目标地址区间是否与任何已映射区域重叠
+  for(const auto& region : regions)
+  {
+    // 区间重叠判断公式: [a1, a2) 和 [b1, b2) 重叠 <=> a1 < b2 || b1 < a2
+    if (target_address < region.end_address || region.start_address < target_end)
+    {
+      LOG_ERROR("地址0x{:x}-0x{:x} 与已映射区域0x{:x}-0x{:x}重叠", target_address, target_end, region.start_address, region.end_address);
+      return false;
+    }
+  }
+
+  // 地址合法且无重叠，可容纳
+  LOG_DEBUG("地址0x{:x} 可容纳 {} bytes 内存", target_address, total_size);
   return true;
 }
