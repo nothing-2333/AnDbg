@@ -1,11 +1,12 @@
-#include "elf_loader.hpp"
-#include "elf_resolver.hpp"
-#include "log.hpp"
-#include "utils.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <unistd.h>
+
+#include "elf_loader.hpp"
+#include "elf_resolver.hpp"
+#include "log.hpp"
+#include "utils.hpp"
 
 
 ELFLoader::ELFLoader()
