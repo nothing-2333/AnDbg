@@ -112,19 +112,7 @@ inline std::vector<pid_t> get_thread_ids(pid_t pid)
   return std::move(tids); 
 }
 
-// 对齐函数
-inline uint64_t align_up(uint64_t address, uint64_t alignment)
-{
-  return (address + alignment - 1) & ~(alignment - 1);
-}
-
-inline uint64_t align_down(uint64_t address, uint64_t alignment)
-{
-  return address & ~(alignment - 1);
-}
-
-// 页对齐
-inline uint64_t align_page(uint64_t address)
+inline long get_page_size()
 {
   static long page_size = sysconf(_SC_PAGE_SIZE);
   if (page_size <= 0) 
@@ -132,10 +120,30 @@ inline uint64_t align_page(uint64_t address)
     LOG_WARNING("获取系统页面大小失败, 使用默认大小 4096 字节");
     page_size = 4096;
   }
-
-  return align_up(address, static_cast<uint64_t>(page_size));
+  return page_size;
 }
 
+// 对齐函数
+inline uint64_t align_up(uint64_t value, uint64_t alignment)
+{
+  return (value + alignment - 1) & ~(alignment - 1);
+}
+
+inline uint64_t align_down(uint64_t value, uint64_t alignment)
+{
+  return value & ~(alignment - 1);
+}
+
+// 页对齐
+inline uint64_t align_page_up(uint64_t value)
+{
+  return align_up(value, static_cast<uint64_t>(get_page_size()));
+}
+
+inline uint64_t align_page_down(uint64_t value)
+{
+  return align_down(value, static_cast<uint64_t>(get_page_size()));
+}
 
 // 判断是否是 sigtrap 信号, 在调试时, ptrace 相关操作通常会触发 SIGTRAP 信号
 inline bool is_sigtrap(int status)

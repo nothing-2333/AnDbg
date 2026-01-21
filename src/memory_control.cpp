@@ -420,7 +420,7 @@ bool MemoryControl::dump_memory(pid_t pid, uint64_t start_address, uint64_t end_
   }
 }
 
-uint64_t MemoryControl::allocate_memory(pid_t pid, size_t size, int prot)
+uint64_t MemoryControl::allocate_memory(pid_t pid, size_t size, uint64_t address, int prot)
 {
   // 基础参数校验
   if (pid <= 0) 
@@ -433,6 +433,11 @@ uint64_t MemoryControl::allocate_memory(pid_t pid, size_t size, int prot)
     LOG_ERROR("分配内存大小不能为 0");
     return 0;
   }
+  if (address < 0)
+  {
+    LOG_ERROR("无效的地址: {}", address);
+    return 0;
+  }
   if ((prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC | PROT_NONE)) != 0)
   {
     LOG_ERROR("无效内存保护属性 prot: 0x{:x}", prot);
@@ -440,7 +445,7 @@ uint64_t MemoryControl::allocate_memory(pid_t pid, size_t size, int prot)
   }
 
   // 内存大小页对齐处理
-  size = Utils::align_page(size);
+  size = Utils::align_page_up(size);
 
   // 保存原始寄存器
   auto gpr_opt = RegisterControl::get_instance().get_all_gpr(pid);
@@ -455,7 +460,7 @@ uint64_t MemoryControl::allocate_memory(pid_t pid, size_t size, int prot)
   struct user_pt_regs regs = {0};
   memcpy(&regs, &gpr, sizeof(user_pt_regs));  
   regs.regs[8] = __NR_mmap;                   // 系统调用号
-  regs.regs[0] = 0;                           // 内核自动分配地址
+  regs.regs[0] = address;                     // 默认是 0, 内核自动分配地址
   regs.regs[1] = static_cast<uint64_t>(size); // 分配大小
   regs.regs[2] = static_cast<uint64_t>(prot); // 内存保护属性
   regs.regs[3] = MAP_PRIVATE | MAP_ANONYMOUS; // 匿名私有映射
@@ -534,8 +539,8 @@ bool MemoryControl::free_memory(pid_t pid, uint64_t address, size_t size)
   }
 
   // 对齐检查, munmap 要求地址和大小都页对齐
-  size = Utils::align_page(size);
-  address = Utils::align_page(address);
+  size = Utils::align_page_up(size);
+  address = Utils::align_page_up(address);
 
   // 保存原始寄存器
   auto gpr_opt = RegisterControl::get_instance().get_all_gpr(pid);
@@ -619,7 +624,7 @@ uint64_t MemoryControl::find_vacant_memory(pid_t pid, size_t total_size)
   }
 
   // 页对齐
-  total_size = Utils::align_page(total_size);
+  total_size = Utils::align_page_up(total_size);
 
   // 获取所有内存区域
   std::vector<MemoryRegion> regions = get_memory_regions(pid);
@@ -668,7 +673,7 @@ bool MemoryControl::can_capacity(pid_t pid, uint64_t target_address, size_t tota
     return false;
   }
 
-  total_size = Utils::align_page(total_size);
+  total_size = Utils::align_page_up(total_size);
   const uint64_t target_end = target_address + total_size;
 
   std::vector<MemoryRegion> regions = get_memory_regions(pid);
