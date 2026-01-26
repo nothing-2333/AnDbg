@@ -8,18 +8,44 @@
 
 #include "log.hpp"
 #include "rpc_server.hpp"
+#include "utils.hpp"
+
+
+// // 64位主机序 → 网络序(大端序)
+// static uint64_t htonll(uint64_t host64) 
+// {
+//   static const int endian = 1;
+//   if (*reinterpret_cast<const char*>(&endian) == 1) 
+//     return ((uint64_t)htonl((uint32_t)(host64 & 0xFFFFFFFF)) << 32) | htonl((uint32_t)(host64 >> 32));
+//   else 
+//     return host64;
+// }
+
+// // 64位网络序 → 主机序
+// static uint64_t ntohll(uint64_t net64) 
+// {
+//   static const int endian = 1;
+//   if (*reinterpret_cast<const char*>(&endian) == 1) 
+//     return ((uint64_t)ntohl((uint32_t)(net64 & 0xFFFFFFFF)) << 32) | ntohl((uint32_t)(net64 >> 32));
+//   else 
+//     return net64;
+// }
 
 RPCServer::RPCServer()
 {
   // 注册一些默认处理函数
-  register_handler("ping", [](std::vector<char>& params) -> std::vector<char> {
-    std::vector<char> response = {'p', 'o', 'n', 'g'};
-    return response;
-  });
-
-  register_handler("ping", [](std::vector<char>& params) -> std::vector<char> {
-    std::vector<char> response(params.begin(), params.end());
-    return response;
+  register_handler("ping", [](std::vector<char>& params) -> std::vector<char> 
+  {
+    if (params.empty()) 
+    {
+      std::vector<char> response = {'p', 'o', 'n', 'g'};
+      return response;
+    }
+    else 
+    {
+      std::vector<char> response(params.begin(), params.end());
+      return response;
+    }
   });
 }
 
@@ -101,7 +127,8 @@ bool RPCServer::start(uint16_t port)
 
   port_ = port;
   running_ = true;
-  server_thread_ = std::thread(&RPCServer::server_loop, this);
+  server_loop();
+  // server_thread_ = std::thread(&RPCServer::server_loop, this);
 
   LOG_DEBUG("RPC 服务器启动, 端口 {}", port);
   return true;
@@ -215,7 +242,10 @@ void RPCServer::handle_client(int client_fd)
     // 读取消息
     std::vector<char> data = read_message(client_fd);
     if (data.empty())
-      break; // 读取失败或连接关闭
+    {
+      LOG_WARNING("读取消息为空, 读取失败或连接关闭");
+      break;
+    }
 
     // 反序列化消息
     Message message = deserialize_message(data);
@@ -239,6 +269,7 @@ void RPCServer::handle_client(int client_fd)
       {
         // 调用处理函数
         response.content = handler(message.content);
+        LOG_DEBUG("response.content.size {}", response.content.size());
         response.command = "success";
         LOG_DEBUG("命令 {} 处理完成", message.command);
       }
@@ -274,7 +305,7 @@ std::vector<char> RPCServer::read_message(int client_fd)
   // 读取消息长度 (8 字节)
   uint64_t net_length;
   ssize_t n = recv(client_fd, &net_length, sizeof(net_length), MSG_WAITALL);
-  if (n != 8)
+  if (n != sizeof(net_length))
   {
     if (n == 0)
       LOG_DEBUG("客户端关闭连接");
@@ -283,7 +314,7 @@ std::vector<char> RPCServer::read_message(int client_fd)
     return {}; // 连接关闭或读取失败
   }
 
-  uint64_t length = ntohl(net_length);
+  uint64_t length = Utils::from_big_endian(net_length);
   if (length == 0)
     return {}; // 空消息
 
@@ -301,12 +332,13 @@ std::vector<char> RPCServer::read_message(int client_fd)
 
 bool RPCServer::send_message(int client_fd, const std::vector<char>& data)
 {
-  uint32_t length = static_cast<uint32_t>(data.size());
-  uint32_t net_length = htonl(length);
+  uint64_t length = static_cast<uint64_t>(data.size());
+  uint64_t net_length = Utils::to_big_endian(length);
 
   // 构建响应: 8 字节长度 + 数据
   std::vector<char> response;
   response.resize(8 + length);
+
   memcpy(response.data(), &net_length, 8);
   memcpy(response.data() + 8, data.data(), length);
 

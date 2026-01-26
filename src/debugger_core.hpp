@@ -1,11 +1,13 @@
 #pragma once
 
+#include "log.hpp"
 #include <sched.h>
 #include <string>
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <vector>
 
 class LaunchInfo;
@@ -72,33 +74,64 @@ public:
 // launch 方法的参数处理类
 class LaunchInfo
 {
+private:
   // 存储
-  std::string path_;               // 路径
-  std::vector<std::string> args_;  // 参数
-  std::vector<std::string> env_;   // 环境
+  std::string path_;                // 路径
+  std::vector<std::string> args_;   // 参数
+  std::vector<std::string> env_;    // 环境
+
+  std::string package_name_;        // 包名
+  std::string main_activity_;       // 主 Activity
 
   // 缓冲区: 存储转换后的 char* 指针(避免重复分配，mutable 允许 const 方法修改)
-  mutable std::vector<char*> argv_buffer;  // 用于 get_argv()
-  mutable std::vector<char*> envp_buffer;  // 用于 get_envp()
+  mutable std::vector<char*> argv_buffer_;  // 用于 get_argv()
+  mutable std::vector<char*> envp_buffer_;  // 用于 get_envp()
           
 public:
-  LaunchInfo(std::string&& path, std::vector<std::string>&& args) : path_(std::move(path)), args_(std::move(args)) {};
-  LaunchInfo(std::string&& path, std::vector<std::string>&& args, std::vector<std::string>&& env)
-    : path_(std::move(path)), args_(std::move(args)), env_(std::move(env)) {};
-  ~LaunchInfo() {};
+  enum class LaunchMode
+  {
+    BINARY,   // 模式1：执行 Linux 二进制可执行文件
+    APP       // 模式2：包名启动 APP
+  };
+
+  LaunchMode mode;
+
+public:
+  LaunchInfo(std::string&& path, std::vector<std::string>&& args, std::vector<std::string>&& env={})
+    : path_(std::move(path)), args_(std::move(args)), env_(std::move(env)), mode(LaunchMode::BINARY) {};
+  LaunchInfo(std::string&& package_name, std::string&& main_activity)
+   : package_name_(std::move(package_name)), main_activity_(std::move(main_activity)), mode(LaunchMode::APP) {}
+  ~LaunchInfo() = default;
+
+  explicit LaunchInfo(std::string&& android_target)
+  {
+    mode = LaunchMode::APP;
+
+    auto split_pos = android_target.find('/');
+    if (split_pos != std::string::npos)
+    {
+      package_name_ = android_target.substr(0, split_pos);
+      main_activity_ = android_target.substr(split_pos); // 保留开头的/, 适配am start格式
+    }
+    else
+    {
+      package_name_ = std::move(android_target);
+      LOG_WARNING("未发现包名分隔符, Activity 留空");
+    }
+  }
 
   char const *get_path() const { return path_.c_str(); };
   
   // 新程序的命令行参数 {"程序的路径", "参数1", "参数2", ..., NULL}
   char *const *get_argv() const
   { 
-    argv_buffer.clear();
+    argv_buffer_.clear();
     for (const auto& arg : args_)
     {
-      argv_buffer.push_back(const_cast<char*>(arg.c_str()));
+      argv_buffer_.push_back(const_cast<char*>(arg.c_str()));
     }
-    argv_buffer.push_back(nullptr);
-    return argv_buffer.data();
+    argv_buffer_.push_back(nullptr);
+    return argv_buffer_.data();
   }        
 
   // 新程序的环境变量 {"KEY=VALUE", ..., NULL}
@@ -111,12 +144,37 @@ public:
         return environ;
     }
 
-    envp_buffer.clear();
+    envp_buffer_.clear();
     for (const auto& e : env_) 
     {
-        envp_buffer.push_back(const_cast<char*>(e.c_str()));
+        envp_buffer_.push_back(const_cast<char*>(e.c_str()));
     }
-    envp_buffer.push_back(nullptr);
-    return envp_buffer.data();
+    envp_buffer_.push_back(nullptr);
+    return envp_buffer_.data();
+  }
+
+  // 获取 APP 包名
+  const std::string& get_package_name() const { return package_name_; }
+  // 获取 APP 主 Activity
+  const std::string& get_main_activity() const { return main_activity_; }
+
+  std::string get_am_cmd(std::unordered_map<std::string, std::string> extra={}) const
+  {
+    if (package_name_.empty() || mode != LaunchMode::APP) return "";
+
+    std::ostringstream oss;
+    oss << "am start -D -n " << package_name_ << main_activity_
+      << " -a android.intent.action.MAIN"
+      << " -c android.intent.category.LAUNCHER";
+
+    for (const auto& [ key, value ] : extra)
+    {
+      if (value.empty())
+        oss << " " << key;
+      else 
+        oss << " " << key << " " << value;
+    }
+
+    return oss.str();
   }
 };

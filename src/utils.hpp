@@ -192,5 +192,70 @@ inline bool syscall_wrapper(pid_t pid)
   return true;
 }
 
+// 全局字节序判断
+static const bool IS_LITTLE_ENDIAN = []() {
+    const int endian_check = 1;
+    // 小端序特征: 低地址存储低位字节(0x01), 大端序存储高位字节(0x00)
+    return *reinterpret_cast<const unsigned char*>(&endian_check) == 1;
+}();
+
+
+// 无符号整数转大端序（入参类型=返回类型）
+template <typename T>
+T to_big_endian(T host_val) 
+{
+  // 编译期校验: 仅允许指定的4种无符号整数类型
+  static_assert(
+    std::is_same<T, uint8_t>::value ||
+    std::is_same<T, uint16_t>::value ||
+    std::is_same<T, uint32_t>::value ||
+    std::is_same<T, uint64_t>::value,
+    "仅仅支持 uint8_t/uint16_t/uint32_t/uint64_t!"
+  );
+
+  // 大端序主机: 无需转换, 直接返回原值
+  if (!IS_LITTLE_ENDIAN) 
+    return host_val;
+
+  // 小端序主机: 按类型字节数反转字节序, 返回同类型大端序值
+  T big_val = 0;
+
+  constexpr size_t byte_size = sizeof(T);
+  for (size_t i = 0; i < byte_size; ++i) 
+  {
+      // 逐字节提取原数据, 重新拼接
+      big_val = (big_val << 8) | (host_val & 0xFF);
+      host_val >>= 8;
+  }
+
+  return static_cast<T>(big_val);
+}
+
+// 大端序无符号整数转主机序
+template <typename T>
+T from_big_endian(T big_val) {
+  static_assert(
+    std::is_same<T, uint8_t>::value ||
+    std::is_same<T, uint16_t>::value ||
+    std::is_same<T, uint32_t>::value ||
+    std::is_same<T, uint64_t>::value,
+    "仅仅支持 uint8_t/uint16_t/uint32_t/uint64_t!"
+  );
+
+  if (!IS_LITTLE_ENDIAN)
+    return big_val;
+
+  T host_val = 0;
+
+  constexpr size_t byte_size = sizeof(T);
+  for (size_t i = 0; i < byte_size; ++i) 
+  {
+      host_val = (host_val << 8) | (big_val & 0xFF);
+      big_val >>= 8;
+  }
+
+  return static_cast<T>(host_val);
+}
+
 }
 

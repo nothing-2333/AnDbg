@@ -27,19 +27,42 @@ bool DebuggerCore::launch(LaunchInfo& launch_info)
   // 子进程
   else if (pid == 0)
   {
-    Utils::ptrace_wrapper(PTRACE_TRACEME, 0, nullptr, nullptr, 0);
-    // 若执行成功, 当前进程会被完全替换, 后续代码不会执行; 若失败则进入下方错误处理
-    execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
-
-    if (errno == ETXTBSY)
+    if (launch_info.mode == LaunchInfo::LaunchMode::BINARY)
     {
-      // 可执行文件被其他进程占用, 等待 50ms, 再次尝试执行
-      usleep(50000);
+      Utils::ptrace_wrapper(PTRACE_TRACEME, 0, nullptr, nullptr, 0);
+      // 若执行成功, 当前进程会被完全替换, 后续代码不会执行; 若失败则进入下方错误处理
       execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
-    }
 
-    LOG_ERROR(std::string("execve 失败: ") + strerror(errno));
-    return false;
+      if (errno == ETXTBSY)
+      {
+        // 可执行文件被其他进程占用, 等待 50ms, 再次尝试执行
+        usleep(50000);
+        execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
+      }
+
+      LOG_ERROR("execve 失败: {}", strerror(errno));
+      return false;
+    }
+    else if (launch_info.mode == LaunchInfo::LaunchMode::APP) 
+    {
+      // 生成 am start --debug 命令
+      std::string am_cmd = launch_info.get_am_cmd();
+      if (am_cmd.empty())
+      {
+        LOG_ERROR("生成 am 启动命令失败，包名或 Activity 为空");
+        return false;
+      }
+      LOG_DEBUG(std::string("子进程执行 am 命令: ") + am_cmd);
+      execl("/system/bin/sh", "sh", "-c", am_cmd.c_str(), (char*)NULL);
+
+      LOG_ERROR("execl 执行 am 命令失败: {}", strerror(errno) );
+      return false;
+    }
+    else 
+    {
+      LOG_ERROR("未知的启动模式");
+      return false;
+    }
   }
   // 父进程
   else 

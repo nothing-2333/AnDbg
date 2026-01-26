@@ -34,8 +34,7 @@ public:
   void add(LogLevel level, std::string content);
 
   std::string to_string();
-
-  void print();
+  std::string to_string(LogLevel level, std::string content);
 };
 
 static std::string format_log(const char* file, int line, std::string content)
