@@ -32,6 +32,12 @@ if(NOT EXISTS ${CAPSTONE_SOURCE_DIR}/CMakeLists.txt)
 endif()
 add_subdirectory(${CAPSTONE_SOURCE_DIR}) 
 
+set(JSON_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json)
+if(NOT EXISTS ${JSON_SOURCE_DIR}/CMakeLists.txt)
+  message(FATAL_ERROR "josn 源码缺失")
+endif()
+add_subdirectory(${JSON_SOURCE_DIR}) 
+
 # 编译核心文件
 add_subdirectory(src)
 

@@ -1,6 +1,6 @@
 import socket
 import struct
-import time
+
 
 class RPCClient:
     def __init__(self, host, port):
