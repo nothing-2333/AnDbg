@@ -8,12 +8,180 @@
 #include "debugger_core.hpp"
 #include "log.hpp"
 #include "utils.hpp"
+#include "proc_file.hpp"
 
 
 DebuggerCore::DebuggerCore()
 {
   m_pid = -1;
   m_tids.clear();
+}
+
+bool DebuggerCore::child_process_execute(LaunchInfo& launch_info)
+{
+  if (launch_info.mode == LaunchInfo::LaunchMode::BINARY)
+  {
+    Utils::ptrace_wrapper(PTRACE_TRACEME, 0, nullptr, nullptr, 0);
+    // 若执行成功, 当前进程会被完全替换, 后续代码不会执行; 若失败则进入下方错误处理
+    execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
+
+    if (errno == ETXTBSY)
+    {
+      // 可执行文件被其他进程占用, 等待 50ms, 再次尝试执行
+      usleep(50000);
+      execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
+    }
+
+    LOG_ERROR("execve 失败: {}", strerror(errno));
+    return false;
+  }
+  else if (launch_info.mode == LaunchInfo::LaunchMode::APP) 
+  {
+    // 生成 am start --D ... 命令
+    std::string am_cmd = launch_info.get_am_cmd();
+    if (am_cmd.empty())
+    {
+      LOG_ERROR("生成 am 启动命令失败, 包名或 Activity 为空");
+      return false;
+    }
+    LOG_DEBUG(std::string("子进程执行 am 命令: ") + am_cmd);
+    execl("/system/bin/sh", "sh", "-c", am_cmd.c_str(), (char*)NULL);
+
+    LOG_ERROR("execl 执行 am 命令失败: {}", strerror(errno) );
+    return false;
+  }
+  else 
+  {
+    LOG_ERROR("未知的启动模式");
+    return false;
+  }
+}
+
+bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
+{
+  if (launch_info.mode == LaunchInfo::LaunchMode::BINARY)
+  {
+    // 等待进程停止
+    int status;
+    if (!Utils::waitpid_wrapper(pid, &status, 0))
+    {
+      LOG_ERROR("等待子进程失败");
+      return false;
+    }
+    
+    if (!WIFSTOPPED(status))
+    {
+      LOG_ERROR("子进程未按预期停止");
+      return false;
+    }
+    LOG_DEBUG("子进程已停止，信号: {}", WSTOPSIG(status));
+
+    // 设置ptrace选项
+    if (!set_default_ptrace_options(pid))
+    {
+      LOG_ERROR("设置 ptrace 选项失败");
+      return false;
+    }
+
+    // 获取所有线程
+    auto tids = ProcHelper::get_thread_ids(pid);
+    if (tids.empty())
+    {
+      LOG_WARNING("无法获取线程列表, 使用主线程");
+      tids = { pid };
+    }
+    
+    // 保存状态
+    m_pid = pid;
+    m_tids = tids;
+    
+    LOG_DEBUG("成功启动二进制调试, PID: {}, 线程数: {}", pid, tids.size());
+    return true;
+  }
+  else if (launch_info.mode == LaunchInfo::LaunchMode::APP) 
+  {
+    int max_retries = 20;  // 最多尝试 20 次
+    int retry_count = 0;
+
+    // 非阻塞检查子进程是否退出
+    int status;
+    pid_t result;
+    do 
+    {
+      usleep(100000);  // 100ms
+      result = Utils::waitpid_wrapper(pid, &status, WNOHANG);
+      retry_count++;
+    } while (result != pid && retry_count < max_retries);
+
+    if (result == 0 || result != pid)
+    {
+      LOG_WARNING("壳进程执行超时, 强制终止");
+      kill(pid, SIGKILL);
+      Utils::waitpid_wrapper(pid, &status, 0);
+    }
+
+    LOG_DEBUG("子进程处理完成");
+  
+    // 查找被 -D 暂停的目标应用进程
+    std::string package_name = launch_info.get_package_name();
+    if (package_name.empty())
+    {
+      LOG_ERROR("包名为空");
+      return false;
+    }
+
+    // 查找目标 APP 进程
+    pid_t app_pid = -1;
+    max_retries = 10;
+    retry_count = 0;
+
+    while (retry_count < max_retries && app_pid == -1)
+    {
+      usleep(100000);  // 等待100ms
+      
+      // 通过包名查找进程
+      std::vector<pid_t> maybe_pids = ProcHelper::find_app_process(package_name);
+      for (const auto& maybe_pid : maybe_pids)
+      {
+        // 检查是否处于暂停状态（-D 的效果）
+        if (ProcHelper::parse_process_state(maybe_pid) == ProcHelper::ProcessState::STOPPED)
+        {
+          LOG_DEBUG("找到被 -D 暂停的应用进程: {}", maybe_pid);
+          app_pid = maybe_pid;
+          break;
+        }
+        else
+        {
+          LOG_DEBUG("应用进程 {} 已启动但未暂停，可能 -D 未生效", maybe_pid);
+        }
+      }
+      
+      usleep(100000);  // 100 ms
+      retry_count++;
+    }
+
+    if (app_pid == -1)
+    {
+      LOG_ERROR("内未找到应用进程: {}", package_name);
+      return false;
+    }
+    LOG_DEBUG("找到应用进程, PID: {}", app_pid);
+
+    // 附加到目标进程
+    if (!attach(app_pid))
+    {
+      LOG_ERROR("附加到应用进程失败");
+      return false;
+    }
+
+    LOG_DEBUG("成功附加到被 -D 暂停的应用, PID: {}, 包名: {}", app_pid, package_name);
+    return true;
+  }
+  else  
+  {
+    LOG_ERROR("未知的启动模式");
+    return false;
+  }
 }
 
 bool DebuggerCore::launch(LaunchInfo& launch_info)
@@ -27,69 +195,18 @@ bool DebuggerCore::launch(LaunchInfo& launch_info)
   // 子进程
   else if (pid == 0)
   {
-    if (launch_info.mode == LaunchInfo::LaunchMode::BINARY)
-    {
-      Utils::ptrace_wrapper(PTRACE_TRACEME, 0, nullptr, nullptr, 0);
-      // 若执行成功, 当前进程会被完全替换, 后续代码不会执行; 若失败则进入下方错误处理
-      execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
-
-      if (errno == ETXTBSY)
-      {
-        // 可执行文件被其他进程占用, 等待 50ms, 再次尝试执行
-        usleep(50000);
-        execve(launch_info.get_path(), launch_info.get_argv(), launch_info.get_envp());
-      }
-
-      LOG_ERROR("execve 失败: {}", strerror(errno));
-      return false;
-    }
-    else if (launch_info.mode == LaunchInfo::LaunchMode::APP) 
-    {
-      // 生成 am start --debug 命令
-      std::string am_cmd = launch_info.get_am_cmd();
-      if (am_cmd.empty())
-      {
-        LOG_ERROR("生成 am 启动命令失败，包名或 Activity 为空");
-        return false;
-      }
-      LOG_DEBUG(std::string("子进程执行 am 命令: ") + am_cmd);
-      execl("/system/bin/sh", "sh", "-c", am_cmd.c_str(), (char*)NULL);
-
-      LOG_ERROR("execl 执行 am 命令失败: {}", strerror(errno) );
-      return false;
-    }
-    else 
-    {
-      LOG_ERROR("未知的启动模式");
-      return false;
-    }
+    return child_process_execute(launch_info);
   }
   // 父进程
   else 
   {
-    // 等待进程停止
-    int status;
-    if (!Utils::waitpid_wrapper(pid, &status, 0)) return false;
-      
-    if (WIFSTOPPED(status)) 
-    {        
-      // 设置跟踪选项
-      if (set_default_ptrace_options(pid))
-      {
-        // 保存
-        m_pid = pid;
-        m_tids = { pid };
-        return true;
-      }
-      else return false;
-    }
-    return false;
+    return parent_process_execute(pid, launch_info);
   } 
 }
 
 bool DebuggerCore::attach(pid_t pid)
 {
-  auto tids = Utils::get_thread_ids(pid);
+  auto tids = ProcHelper::get_thread_ids(pid);
   if (tids.empty()) return false;
 
   std::vector<pid_t> attached_tids;
@@ -124,6 +241,27 @@ bool DebuggerCore::attach(pid_t pid)
     return true;
   }
   else return false;
+}
+
+bool DebuggerCore::run()
+{
+  if (m_tids.empty()) 
+  {
+    LOG_ERROR("没有被调试的进程");
+    return false;
+  }
+
+  bool success = false;
+
+  for (pid_t tid : m_tids) 
+  {
+    if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, nullptr, 0))
+      LOG_WARNING("继续线程 " + std::to_string(tid) + " 失败");
+    else success = true;
+  }
+
+  return success;
+
 }
 
 bool DebuggerCore::detach()
@@ -184,27 +322,6 @@ bool DebuggerCore::step_into(pid_t tid)
 
 bool DebuggerCore::step_over(pid_t tid)
 {
-
-}
-
-bool DebuggerCore::run()
-{
-  if (m_tids.empty()) 
-  {
-    LOG_ERROR("没有被调试的进程");
-    return false;
-  }
-
-  bool success = false;
-
-  for (pid_t tid : m_tids) 
-  {
-    if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, nullptr, 0))
-      LOG_WARNING("继续线程 " + std::to_string(tid) + " 失败");
-    else success = true;
-  }
-
-  return success;
 
 }
 

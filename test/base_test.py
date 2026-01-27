@@ -104,11 +104,6 @@ def main():
         response = client.send_command("ping", large_data)
         print(f"收到响应长度: {len(response) if response else 0}")
         
-        # launch
-        print("\n测试 launch:")
-        response = client.send_command("launch")
-        print(f"服务器响应: {response}")
-        
     finally:
         client.disconnect()
 

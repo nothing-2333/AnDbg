@@ -19,6 +19,7 @@
 #include "fmt/format.h"
 #include "register_control.hpp"
 #include "utils.hpp"
+#include "proc_file.hpp"
 
 
 const uint64_t MEM64_START = 0x10000;
@@ -79,16 +80,15 @@ std::vector<MemoryRegion> MemoryControl::get_memory_regions(pid_t pid)
 {
   std::vector<MemoryRegion> regions;
 
-  std::string maps_path = fmt::format("/proc/{}/maps", pid);
-  std::ifstream maps_file(maps_path);
-  if (!maps_file.is_open())
+  static std::optional<ProcFile> maps_file = ProcFile::open(pid, ProcFileType::MAPS);
+  if (!maps_file || !maps_file->is_open()) 
   {
-    LOG_ERROR("打开 {} 失败: {}", maps_path, strerror(errno));
+    LOG_ERROR("解析进程状态失败: 无法打开/proc/{}/maps", pid);
     return regions;
   }
 
-  std::string line;
-  while (std::getline(maps_file, line)) 
+  std::vector<std::string> lines = maps_file.value().read_lines();
+  for (const auto& line : lines)
   {
     if (line.empty()) continue;
 

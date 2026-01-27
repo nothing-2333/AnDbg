@@ -1,12 +1,11 @@
 #pragma once
 
-#include "fmt/format.h"
-#include "log.hpp"
 #include <dirent.h>
 #include <fstream>
 #include <sys/types.h>
 
-enum class ProcFileType {
+enum class ProcFileType 
+{
   // ==================== 进程基本信息 ====================
   STATUS,         // 进程状态信息
   CMDLINE,        // 命令行参数
@@ -89,11 +88,12 @@ public:
   // 允许移动
   ProcFile(ProcFile&& other) noexcept;
   ProcFile& operator=(ProcFile&& other) noexcept;
-  
-  ~ProcFile();
+
+  ~ProcFile() = default;
 
   // 打开 /proc 文件
   static std::optional<ProcFile> open(pid_t pid, ProcFileType type);
+  static std::optional<ProcFile> open(const std::string& path = "/proc/");
 
   // 检查文件/目录是否成功打开
   bool is_open() const;
@@ -123,6 +123,7 @@ public:
   DIR* directory_handle();
 
 private:
+  ProcFile(const std::string& path);
   ProcFile(const std::string& path, bool is_directory);
   
   // 获取文件类型对应的文件名
@@ -130,8 +131,43 @@ private:
   
   // 检查是否是目录类型
   static bool is_directory_type(ProcFileType type);
+  bool check_directory_type(const std::string& path);
+
+  // 通过路径填充私有变量
+  void open_path(const std::string& path, bool is_directory);
   
   // 构建完整路径
   static std::string build_path(pid_t pid, ProcFileType type);
-
 };
+
+namespace ProcHelper
+{
+
+// 回去进程所有 pid
+std::vector<pid_t> get_thread_ids(pid_t pid);
+
+// 查找 app 进程的 pid
+std::vector<pid_t> find_app_process(const std::string& package_name);
+
+// 进程状态枚举
+enum class ProcessState 
+{
+  UNKNOWN,    // 未知状态
+  RUNNING,    // R: 运行中/就绪
+  SLEEPING,   // S: 可中断睡眠
+  DISK_SLEEP, // D: 不可中断睡眠
+  STOPPED,    // T: 暂停/跟踪停止
+  ZOMBIE,     // Z: 僵尸进程
+  DEAD,       // X: 死亡进程
+  WAITING,    // W: 进程等待
+  PARKED      // P: 进程驻留
+};
+
+// 枚举转可读字符串
+std::string process_state_to_string(ProcessState state);
+
+// 解析/proc/[pid]/status的State字段
+ProcessState parse_process_state(pid_t pid);
+
+
+}

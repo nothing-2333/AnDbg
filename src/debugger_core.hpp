@@ -18,9 +18,6 @@ private:
   pid_t m_pid;
   std::vector<pid_t> m_tids;
 
-  // 设置默认 ptrace 调试选项
-  bool set_default_ptrace_options(pid_t pid);
-
 public:
   DebuggerCore();
 
@@ -39,7 +36,7 @@ public:
   // 单步步过
   bool step_over(pid_t tid = -1);
   
-  // 执行(直到断点或结束)
+  // 执行
   bool run();
   
   // 设置断点
@@ -66,9 +63,13 @@ public:
   // 获取相关内存布局
   bool get_memory_layout();
 
-  // 解析符号
-  bool resolve_symbol();
+private:
+  bool child_process_execute(LaunchInfo& launch_info);
 
+  bool parent_process_execute(pid_t pid, LaunchInfo& launch_info);
+
+  // 设置默认 ptrace 调试选项
+  bool set_default_ptrace_options(pid_t pid);
 };
 
 // launch 方法的参数处理类
