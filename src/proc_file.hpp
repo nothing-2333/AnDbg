@@ -2,6 +2,7 @@
 
 #include <dirent.h>
 #include <fstream>
+#include <optional>
 #include <sys/types.h>
 
 enum class ProcFileType 

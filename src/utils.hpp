@@ -17,7 +17,16 @@ namespace Utils
 bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size, long* result = nullptr);
 
 // waitpid 包装
-bool waitpid_wrapper(pid_t pid, int* status, int __options);
+// @param options 等待选项:
+// - 0: 阻塞模式, 直到目标子进程状态变化(退出/暂停)
+// - WNOHANG: 非阻塞模式, 无状态变化时立即返回0
+// - WUNTRACED: 监听子进程暂停事件(如收到SIGSTOP), 即使未跟踪该进程
+// - WCONTINUED: 监听子进程恢复运行事件(收到SIGCONT)
+// 返回值:
+//   - >0: 已退出/暂停的子进程 PID
+//   -  0: 非阻塞模式下, 子进程仍在运行
+//   - -1: 调用失败, errno 会被设置
+pid_t waitpid_wrapper(pid_t pid, int* status, int __options);
 
 long get_page_size();
 

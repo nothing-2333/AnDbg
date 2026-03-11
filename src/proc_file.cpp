@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <unordered_map>
 #include <unordered_set>
 #include <sys/stat.h>
 #include <filesystem>

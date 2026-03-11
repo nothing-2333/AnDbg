@@ -62,21 +62,43 @@ bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t da
   else return true;;
 }
 
-// waitpid 包装
-bool waitpid_wrapper(pid_t pid, int* status, int __options)
+pid_t waitpid_wrapper(pid_t pid, int* status, int __options)
 {
   pid_t wpid = waitpid(pid, status, __options);
 
-  LOG_DEBUG("等待进程 pid: {} 完成, 返回值: {}", pid, wpid);
-
+  // 按返回值分类打印日志, 更易排查问题
   if (wpid == -1) 
   {
-    LOG_ERROR("停止失败: {}", std::string(strerror(errno)));
-    return false;
+    LOG_ERROR("waitpid 调用失败, 目标PID: {}, 错误: {}", pid, std::string(strerror(errno)));
   }
-  return true;
-}
+  else if (wpid == 0)
+  {
+    LOG_DEBUG("waitpid 非阻塞返回: 目标PID {} 仍在运行", pid);
+  }
+  else
+  {
+    // 解析状态, 补充更详细的日志
+    std::string status_desc = "未知状态";
+    if (status != nullptr)
+    {
+      if (WIFEXITED(*status)) 
+      {
+        status_desc = fmt::format("正常退出, 退出码: {}", WEXITSTATUS(*status));
+      } 
+      else if (WIFSIGNALED(*status)) 
+      {
+        status_desc = fmt::format("信号终止, 信号: {}", WTERMSIG(*status));
+      } 
+      else if (WIFSTOPPED(*status)) 
+      {
+        status_desc = fmt::format("进程暂停, 信号: {}", WSTOPSIG(*status));
+      }
+    }
+    LOG_DEBUG("waitpid 完成, 目标PID: {}, 返回PID: {}, 状态: {}", pid, wpid, status_desc);
+  }
 
+  return wpid;
+}
 
 long get_page_size()
 {
@@ -158,7 +180,7 @@ bool syscall_wrapper(pid_t pid)
   return true;
 }
 
-// 无符号整数转大端序（入参类型=返回类型）
+// 无符号整数转大端序(入参类型=返回类型)
 template <typename T>  T to_big_endian(T host_val) 
 {
   // 编译期校验: 仅允许指定的4种无符号整数类型

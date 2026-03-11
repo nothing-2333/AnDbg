@@ -59,28 +59,33 @@ bool DebuggerCore::child_process_execute(LaunchInfo& launch_info)
 
 bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
 {
+  const int AM_RETRY_MAX = 20;
+  const int AM_RETRY_INTERVAL = 50000;
+  const int APP_FIND_RETRY_MAX = 10;
+  const int APP_FIND_INTERVAL = 50000;
+
   if (launch_info.mode == LaunchInfo::LaunchMode::BINARY)
   {
     // 等待进程停止
     int status;
-    if (!Utils::waitpid_wrapper(pid, &status, 0))
+    if (Utils::waitpid_wrapper(pid, &status, 0) != pid)
     {
       LOG_ERROR("等待子进程失败");
-      return false;
+      goto fail;
     }
     
     if (!WIFSTOPPED(status))
     {
       LOG_ERROR("子进程未按预期停止");
-      return false;
+      goto fail;
     }
     LOG_DEBUG("子进程已停止，信号: {}", WSTOPSIG(status));
 
-    // 设置ptrace选项
+    // 设置 ptrace 选项
     if (!set_default_ptrace_options(pid))
     {
       LOG_ERROR("设置 ptrace 选项失败");
-      return false;
+      goto fail;
     }
 
     // 获取所有线程
@@ -100,7 +105,6 @@ bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
   }
   else if (launch_info.mode == LaunchInfo::LaunchMode::APP) 
   {
-    int max_retries = 20;  // 最多尝试 20 次
     int retry_count = 0;
 
     // 非阻塞检查子进程是否退出
@@ -108,16 +112,15 @@ bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
     pid_t result;
     do 
     {
-      usleep(100000);  // 100ms
+      usleep(AM_RETRY_INTERVAL);  // 100ms
       result = Utils::waitpid_wrapper(pid, &status, WNOHANG);
       retry_count++;
-    } while (result != pid && retry_count < max_retries);
+    } while (result == 0 && retry_count < AM_RETRY_MAX);
 
-    if (result == 0 || result != pid)
+    if (result != pid)
     {
-      LOG_WARNING("壳进程执行超时, 强制终止");
-      kill(pid, SIGKILL);
-      Utils::waitpid_wrapper(pid, &status, 0);
+      LOG_WARNING("启动进程执行超时, 强制终止");
+      goto fail;
     }
 
     LOG_DEBUG("子进程处理完成");
@@ -132,12 +135,11 @@ bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
 
     // 查找目标 APP 进程
     pid_t app_pid = -1;
-    max_retries = 10;
     retry_count = 0;
 
-    while (retry_count < max_retries && app_pid == -1)
+    while (retry_count < APP_FIND_RETRY_MAX && app_pid == -1)
     {
-      usleep(100000);  // 等待100ms
+      usleep(APP_FIND_INTERVAL);  // 等待100ms
       
       // 通过包名查找进程
       std::vector<pid_t> maybe_pids = ProcHelper::find_app_process(package_name);
@@ -155,15 +157,14 @@ bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
           LOG_DEBUG("应用进程 {} 已启动但未暂停，可能 -D 未生效", maybe_pid);
         }
       }
-      
-      usleep(100000);  // 100 ms
+    
       retry_count++;
     }
 
     if (app_pid == -1)
     {
-      LOG_ERROR("内未找到应用进程: {}", package_name);
-      return false;
+      LOG_ERROR("未找到应用进程: {}", package_name);
+      goto fail;
     }
     LOG_DEBUG("找到应用进程, PID: {}", app_pid);
 
@@ -171,7 +172,7 @@ bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
     if (!attach(app_pid))
     {
       LOG_ERROR("附加到应用进程失败");
-      return false;
+      goto fail;
     }
 
     LOG_DEBUG("成功附加到被 -D 暂停的应用, PID: {}, 包名: {}", app_pid, package_name);
@@ -182,6 +183,15 @@ bool DebuggerCore::parent_process_execute(pid_t pid, LaunchInfo& launch_info)
     LOG_ERROR("未知的启动模式");
     return false;
   }
+
+fail: 
+  if (kill(pid, 0) == 0) // kill(pid, 0) 不发送信号，仅检查进程是否存在
+  { 
+    int status;
+    kill(pid, SIGKILL); // 这里的进程是子进程 pid
+    Utils::waitpid_wrapper(pid, &status, 0); // 回收僵尸进程
+  }
+  return false;
 }
 
 bool DebuggerCore::launch(LaunchInfo& launch_info)
@@ -217,7 +227,7 @@ bool DebuggerCore::attach(pid_t pid)
     {
       // 等待线程停止
       int status;
-      if (!Utils::waitpid_wrapper(tid, &status, __WALL)) continue;
+      if (Utils::waitpid_wrapper(tid, &status, __WALL) == -1) continue;
 
       if (WIFSTOPPED(status))
       {
@@ -308,13 +318,8 @@ bool DebuggerCore::step_into(pid_t tid)
   if (Utils::ptrace_wrapper(PTRACE_SINGLESTEP, tid, nullptr, nullptr, 0))
   {
     int status;
-    if (Utils::waitpid_wrapper(tid, &status, __WALL))
-    {
-      if (WIFSTOPPED(status))
-      {
-        return true;
-      }
-    }
+    pid_t wpid = Utils::waitpid_wrapper(tid, &status, __WALL);
+    if (wpid != -1 && WIFSTOPPED(status)) return true;
   }
 
   return false;
