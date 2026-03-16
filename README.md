@@ -1,7 +1,13 @@
 # AnDbg
 一个 Android so 的调试器......
 
-# 可能会用到的 adb 命令
+## build
+```bash
+
+git submodule update --init --recursive
+```
+
+## 可能会用到的 adb 命令
 ```bash
 # 转发端口
 adb forward <电脑本地端口> <手机设备端口>

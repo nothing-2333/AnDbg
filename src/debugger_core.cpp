@@ -327,7 +327,7 @@ bool DebuggerCore::step_into(pid_t tid)
 
 bool DebuggerCore::step_over(pid_t tid)
 {
-
+  
 }
 
 bool DebuggerCore::set_default_ptrace_options(pid_t pid)

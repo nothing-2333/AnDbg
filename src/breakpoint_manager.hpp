@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <mutex>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -15,21 +14,13 @@
 // 条件断点回调函数类型
 using BreakpointCondition = std::function<bool(pid_t tid, uint64_t address, const user_pt_regs& regs)>;
 
-// 断点类型
+// 所有断点类型
 enum class BreakpointType
 {
   SOFTWARE,             // 软件断点
   HARDWARE_EXECUTION,   // 硬件执行断点
   HARDWARE_WRITE,       // 硬件写入断点
   HARDWARE_READWRITE    // 硬件读写断点
-};
-
-// 提供给用户使用
-enum class HareWareBreakpointType
-{
-  EXECUTION,
-  WRITE,
-  READWRITE 
 };
 
 // 断点结构体
@@ -86,9 +77,6 @@ private:
   // 空闲硬件断点寄存器
   std::unordered_set<DBRegister> m_free_hardware_registers_;
 
-  // 线程安全
-  mutable std::recursive_mutex m_mutex_;                                   
-  
   // 下一个要分配的断点 ID
   int m_next_breakpoint_id_ = 1;                                                   
   
@@ -101,7 +89,7 @@ public:
   int set_software_breakpoint(pid_t tid, uint64_t address, BreakpointCondition condition=nullptr);
   
   // 设置硬件断点
-  int set_hardware_breakpoint(pid_t tid, uint64_t address, HareWareBreakpointType type, BreakpointCondition condition=nullptr);
+  int set_hardware_breakpoint(pid_t tid, uint64_t address, BreakpointType type, BreakpointCondition condition=nullptr);
 
   // 移除断点对象
   bool remove_breakpoint(int bid);
@@ -131,5 +119,5 @@ private:
   uint32_t original_instruction, BreakpointCondition condition);
 
   // 检查重复断点
-  bool check_duplicate_breakpoint(pid_t tid, uint64_t address, BreakpointType type);
+  bool check_duplicate_breakpoint(pid_t tid, uint64_t address);
 };

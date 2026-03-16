@@ -102,8 +102,13 @@ bool ProcFile::is_directory_type(ProcFileType type)
 
 bool ProcFile::check_directory_type(const std::string& path)
 {
-  std::error_code ec;
-  return std::filesystem::is_directory(path, ec);
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) 
+  {
+    LOG_DEBUG("检查路径[{}]是否为目录失败: {}", path, strerror(errno));
+    return false;
+  }
+  return S_ISDIR(st.st_mode);
 }
 
 std::string ProcFile::build_path(pid_t pid, ProcFileType type) 

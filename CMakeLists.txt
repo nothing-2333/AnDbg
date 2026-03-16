@@ -4,7 +4,6 @@ if(NOT ANDROID_NDK)
     message(FATAL_ERROR "未设置 ANDROID_NDK_HOME 环境变量！请配置 NDK 路径")
 endif()
 
-
 # 设置 Android 平台和架构
 set(ANDROID_PLATFORM android-24)
 # 针对 64 位 ARM 架构
@@ -34,7 +33,7 @@ add_subdirectory(${CAPSTONE_SOURCE_DIR})
 
 set(JSON_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/json)
 if(NOT EXISTS ${JSON_SOURCE_DIR}/CMakeLists.txt)
-  message(FATAL_ERROR "josn 源码缺失")
+  message(FATAL_ERROR "json 源码缺失")
 endif()
 add_subdirectory(${JSON_SOURCE_DIR}) 
 
