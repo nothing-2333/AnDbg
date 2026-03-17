@@ -1,6 +1,7 @@
 #pragma once
 
 #include "log.hpp"
+#include <memory>
 #include <sched.h>
 #include <string>
 #include <sys/ptrace.h>
@@ -9,6 +10,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <vector>
+#include "breakpoint_manager.hpp"
 
 class LaunchInfo;
 
@@ -17,6 +19,7 @@ class DebuggerCore
 private:
   pid_t m_pid;
   std::vector<pid_t> m_tids;
+  std::unique_ptr<BreakpointManager> breakpoint_manager;
 
 public:
   DebuggerCore();
@@ -44,6 +47,12 @@ public:
 
   // 移除断点
   bool remove_breakpoint();
+
+  // 启用断点
+  bool enable_breakpoint();
+
+  // 禁用断点
+  bool disable_breakpoint();
 
   // 读取内存
   bool read_memory();

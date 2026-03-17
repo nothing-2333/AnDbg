@@ -4,7 +4,6 @@
 ## build
 ```bash
 
-git submodule update --init --recursive
 ```
 
 ## 可能会用到的 adb 命令

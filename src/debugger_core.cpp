@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "debugger_core.hpp"
+#include "breakpoint_manager.hpp"
 #include "log.hpp"
 #include "utils.hpp"
 #include "proc_file.hpp"
@@ -15,6 +16,7 @@ DebuggerCore::DebuggerCore()
 {
   m_pid = -1;
   m_tids.clear();
+  breakpoint_manager = std::make_unique<BreakpointManager>();
 }
 
 bool DebuggerCore::child_process_execute(LaunchInfo& launch_info)
@@ -327,7 +329,7 @@ bool DebuggerCore::step_into(pid_t tid)
 
 bool DebuggerCore::step_over(pid_t tid)
 {
-  
+
 }
 
 bool DebuggerCore::set_default_ptrace_options(pid_t pid)
