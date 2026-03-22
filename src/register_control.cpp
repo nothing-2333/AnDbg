@@ -10,6 +10,9 @@
 #include "register_control.hpp"
 
 
+namespace Core 
+{
+
 // 通用寄存器名称映射
 const char* RegisterControl::gpr_names[] = {
   "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
@@ -38,134 +41,140 @@ const char* RegisterControl::dbg_names[] = {
     "dbg_info",
 };
 
-bool RegisterControl::ptrace_get_regset(pid_t pid, void* data, size_t size, RegisterType regset)
+bool RegisterControl::ptrace_get_regset(pid_t tid, void* data, size_t size, RegisterType type)
 {
   struct iovec iov;
   iov.iov_base = data;
   iov.iov_len = size;
 
-  return Utils::ptrace_wrapper(PTRACE_GETREGSET, pid, 
-    reinterpret_cast<void*>(static_cast<unsigned int>(regset)), &iov, size);
+  return Utils::ptrace_wrapper(PTRACE_GETREGSET, tid, 
+    reinterpret_cast<void*>(static_cast<unsigned int>(type)), &iov, size);
 }
 
-bool RegisterControl::ptrace_set_regset(pid_t pid, const void* data, size_t size, RegisterType regset)
+bool RegisterControl::ptrace_set_regset(pid_t tid, const void* data, size_t size, RegisterType type)
 {
   struct iovec iov;
   iov.iov_base = const_cast<void*>(data);
   iov.iov_len = size;
 
-  return Utils::ptrace_wrapper(PTRACE_SETREGSET, pid, 
-    reinterpret_cast<void*>(static_cast<unsigned int>(regset)), &iov, size);
+  return Utils::ptrace_wrapper(PTRACE_SETREGSET, tid, 
+    reinterpret_cast<void*>(static_cast<unsigned int>(type)), &iov, size);
 }
 
-std::optional<struct user_pt_regs> RegisterControl::get_all_gpr(pid_t pid)
+std::optional<struct user_pt_regs> RegisterControl::get_all_gpr(pid_t tid)
 {
   struct user_pt_regs regs;
-  if (ptrace_get_regset(pid, &regs, sizeof(regs), RegisterType::GPR))
+  if (ptrace_get_regset(tid, &regs, sizeof(regs), RegisterType::GPR))
   {
     return regs;
   }
   return std::nullopt;
 }
 
-bool RegisterControl::set_all_gpr(pid_t pid, const struct user_pt_regs& regs)
+bool RegisterControl::set_all_gpr(pid_t tid, const struct user_pt_regs& regs)
 {
-  return ptrace_set_regset(pid, &regs, sizeof(regs), RegisterType::GPR);
+  return ptrace_set_regset(tid, &regs, sizeof(regs), RegisterType::GPR);
 }
 
 
-std::optional<struct user_fpsimd_state> RegisterControl::get_all_fpr(pid_t pid)
+std::optional<struct user_fpsimd_state> RegisterControl::get_all_fpr(pid_t tid)
 {
   struct user_fpsimd_state fpr;
-  if (ptrace_get_regset(pid, &fpr, sizeof(fpr), RegisterType::FPR))
+  if (ptrace_get_regset(tid, &fpr, sizeof(fpr), RegisterType::FPR))
   {
     return fpr;
   }
   return std::nullopt;
 }
 
-bool RegisterControl::set_all_fpr(pid_t pid, const struct user_fpsimd_state& fpr)
+bool RegisterControl::set_all_fpr(pid_t tid, const struct user_fpsimd_state& fpr)
 {
-  return ptrace_set_regset(pid, &fpr, sizeof(fpr), RegisterType::FPR);
+  return ptrace_set_regset(tid, &fpr, sizeof(fpr), RegisterType::FPR);
 }
 
-std::optional<struct user_hwdebug_state> RegisterControl::get_all_dbg(pid_t pid)
+std::optional<struct user_hwdebug_state> RegisterControl::get_all_dbg(pid_t tid)
 {
   struct user_hwdebug_state dbg;
-  if (ptrace_get_regset(pid, &dbg, sizeof(dbg), RegisterType::DBG)) 
+  if (ptrace_get_regset(tid, &dbg, sizeof(dbg), RegisterType::DBG)) 
   {
       return dbg;
   }
   return std::nullopt;
 }
 
-bool RegisterControl::set_all_dbg(pid_t pid, const struct user_hwdebug_state& dbg)
+bool RegisterControl::set_all_dbg(pid_t tid, const struct user_hwdebug_state& dbg)
 {
-  return ptrace_set_regset(pid, &dbg, sizeof(dbg), RegisterType::DBG);
+  return ptrace_set_regset(tid, &dbg, sizeof(dbg), RegisterType::DBG);
 }
 
-std::optional<uint64_t> RegisterControl::get_gpr(pid_t pid, GPRegister reg)
+std::optional<uint64_t> RegisterControl::get_gpr(pid_t tid, GPRegister reg)
 {
-  auto gpr_opt = get_all_gpr(pid);
+  auto gpr_opt = get_all_gpr(tid);
   if (!gpr_opt) return std::nullopt;
   const auto& gpr = gpr_opt.value();
 
-  // 调用 const 版本
-  const uint64_t* value_ptr = get_gpr_pointer(gpr, reg);
-  if (value_ptr) return std::nullopt;
+  auto ptr_opt = get_gpr_pointer(const_cast<user_pt_regs&>(gpr), reg);
+  if (!ptr_opt) return std::nullopt;
 
-  return *value_ptr;
+  return *ptr_opt.value();
 }
 
-bool RegisterControl::set_gpr(pid_t pid, GPRegister reg, uint64_t value)
+bool RegisterControl::set_gpr(pid_t tid, GPRegister reg, uint64_t value)
 {
-  auto gpr_opt = get_all_gpr(pid);
+  auto offset = get_gpr_offset(reg);
+  if (!offset) return false;
+
+  return Utils::ptrace_wrapper(PTRACE_POKEUSER, tid, reinterpret_cast<void*>(offset.value()), 
+    reinterpret_cast<void*>(value), sizeof(uint64_t));
+
+  /* 上边的优化不生效可回退此方案
+  auto gpr_opt = get_all_gpr(tid);
   if (!gpr_opt) return false;
   auto& gpr = gpr_opt.value();
 
-  // 调用非 const 版本
-  uint64_t* value_ptr = get_gpr_pointer(gpr, reg);
-  if (!value_ptr) return false;
+  auto ptr_opt = get_gpr_pointer(gpr, reg);
+  if (!ptr_opt) return false;
 
-  *value_ptr = value;
-  return set_all_gpr(pid, gpr);
+  uint64_t* ptr_val = ptr_opt.value();
+  *ptr_val = value;
+  return set_all_gpr(tid, gpr);
+  */
 }
 
-std::optional<RegisterControl::FPRValue> RegisterControl::get_fpr(pid_t pid, FPRegister reg)
+std::optional<RegisterControl::FPRValue> RegisterControl::get_fpr(pid_t tid, FPRegister reg)
 {
-  auto fpr_opt = get_all_fpr(pid);
+  auto fpr_opt = get_all_fpr(tid);
   if (!fpr_opt) return std::nullopt;
   const auto& fpr = fpr_opt.value();
 
-  // 调用 const 版本 get_fpr_pointer, 获取只读指针
-  auto ptr_opt = get_fpr_pointer(fpr, reg);
+  auto ptr_opt = get_fpr_pointer(const_cast<user_fpsimd_state&>(fpr), reg);
   if (!ptr_opt) return std::nullopt;
   const auto& ptr_var = ptr_opt.value();
 
   // 解析 variant 指针, 返回对应的值
-  if (std::holds_alternative<const __uint128_t*>(ptr_var))
+  if (std::holds_alternative<__uint128_t*>(ptr_var))
   {
-    const __uint128_t* ptr = std::get<const __uint128_t*>(ptr_var);
+    const __uint128_t* ptr = std::get<__uint128_t*>(ptr_var);
     return FPRValue(*ptr);
   }
-  else if (std::holds_alternative<const uint32_t*>(ptr_var)) 
+  else if (std::holds_alternative<uint32_t*>(ptr_var)) 
   {
-    const uint32_t* ptr = std::get<const uint32_t*>(ptr_var);
+    const uint32_t* ptr = std::get<uint32_t*>(ptr_var);
     return FPRValue(*ptr);
   }
   else return std::nullopt;
 }
 
-// 设置单个浮点寄存器值
-bool RegisterControl::set_fpr(pid_t pid, FPRegister reg, const RegisterControl::FPRValue& value)
+bool RegisterControl::set_fpr(pid_t tid, FPRegister reg, const RegisterControl::FPRValue& value)
 {
-  auto fpr_opt = get_all_fpr(pid);
+  // todo: 用 ptrace 的 PTRACE_POKEUSER, 类似 set_gpr, get_fpr_offset 已经写好
+  auto fpr_opt = get_all_fpr(tid);
   if (!fpr_opt) return false;
   auto& fpr = fpr_opt.value(); 
 
-  // 调用非 const 版本 get_fpr_pointer, 获取可修改指针
   auto ptr_opt = get_fpr_pointer(fpr, reg);
   if (!ptr_opt) return false;
+
   const auto& ptr_var = ptr_opt.value();
 
   // 解析指针类型, 与输入值类型匹配后赋值
@@ -181,18 +190,19 @@ bool RegisterControl::set_fpr(pid_t pid, FPRegister reg, const RegisterControl::
   }
   else return false;
 
-  return set_all_fpr(pid, fpr);
+  return set_all_fpr(tid, fpr);
 }
 
-// 获取单个调试寄存器
-std::optional<std::pair<uint64_t, uint32_t>> RegisterControl::get_dbg(pid_t pid, DBRegister reg)
+std::optional<std::pair<uint64_t, uint32_t>> RegisterControl::get_dbg(pid_t tid, DBRegister reg)
 {
-  auto dbg_opt = get_all_dbg(pid);
+  auto dbg_opt = get_all_dbg(tid);
   if (!dbg_opt) return std::nullopt;
   const auto& dbg = dbg_opt.value();
 
-  // 调用 const 版本
-  const std::pair<const uint64_t*, const uint32_t*> ptr_pair = get_dbg_pointer(dbg, reg);
+  auto ptr_opt = get_dbg_pointer(const_cast<user_hwdebug_state&>(dbg), reg);
+  if (!ptr_opt) return std::nullopt;
+
+  auto ptr_pair = ptr_opt.value();
 
   if (ptr_pair.first && ptr_pair.second) 
     return std::make_pair(*ptr_pair.first, *ptr_pair.second);
@@ -201,49 +211,27 @@ std::optional<std::pair<uint64_t, uint32_t>> RegisterControl::get_dbg(pid_t pid,
   else return std::nullopt;
 }
 
-// 设置单个调试寄存器
-bool RegisterControl::set_dbg(pid_t pid, DBRegister reg, uint64_t addr, uint32_t ctrl)
+bool RegisterControl::set_dbg(pid_t tid, DBRegister reg, const DBGValue& value)
 {
-  auto dbg_opt = get_all_dbg(pid);
+  auto dbg_opt = get_all_dbg(tid);
   if (!dbg_opt) return false;
   auto& dbg = dbg_opt.value();
 
-  // 调用非 const 版本
-  std::pair<uint64_t*, uint32_t*> ptr_pair = get_dbg_pointer(dbg, reg);
+  auto ptr_opt = get_dbg_pointer(dbg, reg);
+  if (!ptr_opt) return false;
+
+  auto ptr_pair = ptr_opt.value();
 
   if (ptr_pair.first && ptr_pair.second)
   {
-    *ptr_pair.first = addr;
-    *ptr_pair.second = ctrl;
+    *ptr_pair.first = value.first;
+    *ptr_pair.second = value.second;
   }
   else if (ptr_pair.second && !ptr_pair.first)
-    *ptr_pair.second = ctrl;
+    *ptr_pair.second = value.second;  // dbg_info 的处理
   else return false;
 
-  return set_all_dbg(pid, dbg);
-}
-
-std::optional<uint64_t> RegisterControl::get_pc(pid_t pid)
-{
-  return get_gpr(pid, GPRegister::PC);
-}
-
-// 设置程序计数器
-bool RegisterControl::set_pc(pid_t pid, uint64_t value)
-{
-  return set_gpr(pid, GPRegister::PC, value);
-}
-
-// 获取栈指针
-std::optional<uint64_t> RegisterControl::get_sp(pid_t pid)
-{
-  return get_gpr(pid, GPRegister::SP);
-}
-
-// 设置栈指针
-bool RegisterControl::set_sp(pid_t pid, uint64_t value)
-{
-  return set_gpr(pid, GPRegister::SP, value);
+  return set_all_dbg(tid, dbg);
 }
 
 const char* RegisterControl::get_gpr_name(GPRegister reg)
@@ -273,7 +261,7 @@ const char* RegisterControl::get_dbg_name(DBRegister reg)
   return "unknown";
 }
 
-uint64_t* RegisterControl::get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg)
+std::optional<RegisterControl::GPRValuePtr> RegisterControl::get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg)
 {
   if (reg >= GPRegister::X0 && reg <= GPRegister::X30)
   {
@@ -286,64 +274,29 @@ uint64_t* RegisterControl::get_gpr_pointer(struct user_pt_regs& regs, GPRegister
     case GPRegister::SP: return reinterpret_cast<uint64_t*>(&regs.sp);
     case GPRegister::PC: return reinterpret_cast<uint64_t*>(&regs.pc);
     case GPRegister::PSTATE: return reinterpret_cast<uint64_t*>(&regs.pstate);
-    default: return nullptr;
+    default: return std::nullopt;
   }
 }
 
-const uint64_t* RegisterControl::get_gpr_pointer(const struct user_pt_regs& regs, GPRegister reg) const
-{
-  if (reg >= GPRegister::X0 && reg <= GPRegister::X30)
-  {
-    int index = static_cast<int>(reg);
-    return reinterpret_cast<const uint64_t*>(&regs.regs[index]);
-  }
-
-  switch (reg) 
-  {
-    case GPRegister::SP: return reinterpret_cast<const uint64_t*>(&regs.sp);
-    case GPRegister::PC: return reinterpret_cast<const uint64_t*>(&regs.pc);
-    case GPRegister::PSTATE: return reinterpret_cast<const uint64_t*>(&regs.pstate);
-    default: return nullptr;
-  }
-}
-
-std::optional<RegisterControl::FPRMutablePtr> RegisterControl::get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg)
+std::optional<RegisterControl::FPRValuePtr> RegisterControl::get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg)
 {
   if (reg >= FPRegister::V0 && reg <= FPRegister::V31)
   {
     int index = static_cast<int>(reg);
-    return FPRMutablePtr(&fpr.vregs[index]);
+    return FPRValuePtr(&fpr.vregs[index]);
   }
 
   switch (reg) 
   {
-    case FPRegister::FPCR: return FPRMutablePtr(reinterpret_cast<uint32_t*>(&fpr.fpcr));
-    case FPRegister::FPSR: return FPRMutablePtr(reinterpret_cast<uint32_t*>(&fpr.fpsr));
+    case FPRegister::FPCR: return FPRValuePtr(reinterpret_cast<uint32_t*>(&fpr.fpcr));
+    case FPRegister::FPSR: return FPRValuePtr(reinterpret_cast<uint32_t*>(&fpr.fpsr));
     default: 
       LOG_ERROR("获取浮点寄存器指针失败, 无效寄存器(reg = %d)", static_cast<int>(reg));
       return std::nullopt;
   }
 }
 
-std::optional<RegisterControl::FPRConstPtr> RegisterControl::get_fpr_pointer(const struct user_fpsimd_state& fpr, FPRegister reg) const
-{
-  if (reg >= FPRegister::V0 && reg <= FPRegister::V31)
-  {
-    int index = static_cast<int>(reg);
-    return FPRConstPtr(&fpr.vregs[index]);
-  }
-
-  switch (reg) 
-  {
-    case FPRegister::FPCR: return FPRConstPtr(reinterpret_cast<const uint32_t*>(&fpr.fpcr));
-    case FPRegister::FPSR: return FPRConstPtr(reinterpret_cast<const uint32_t*>(&fpr.fpsr));
-    default: 
-      LOG_ERROR("获取浮点寄存器指针失败, 无效寄存器(reg = %d)", static_cast<int>(reg));
-      return std::nullopt;
-  }
-}
-
-std::pair<uint64_t*, uint32_t*> RegisterControl::get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg)
+std::optional<RegisterControl::DBGValuePtr> RegisterControl::get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg)
 {
   int index = static_cast<int>(reg);
   if (index >= static_cast<int>(DBRegister::DBG0) && index <= static_cast<int>(DBRegister::DBG15))
@@ -352,19 +305,51 @@ std::pair<uint64_t*, uint32_t*> RegisterControl::get_dbg_pointer(struct user_hwd
   switch (reg) 
   {
     case DBRegister::DBG_INFO: return std::make_pair(nullptr, &dbg.dbg_info);
-    default: return std::make_pair(nullptr, nullptr);
+    default: return std::nullopt;
   }
 }
 
-const std::pair<const uint64_t*, const uint32_t*> RegisterControl::get_dbg_pointer(const struct user_hwdebug_state& dbg, DBRegister reg) const
+std::optional<uint64_t> RegisterControl::get_gpr_offset(GPRegister reg)
 {
-  int index = static_cast<int>(reg);
-  if (index >= static_cast<int>(DBRegister::DBG0) && index <= static_cast<int>(DBRegister::DBG15))
-    return std::make_pair(reinterpret_cast<const uint64_t*>(&dbg.dbg_regs[index].addr), &dbg.dbg_regs[index].ctrl);
-
   switch (reg) 
   {
-    case DBRegister::DBG_INFO: return std::make_pair(nullptr, &dbg.dbg_info);
-    default: return std::make_pair(nullptr, nullptr);
+    case GPRegister::X0 ... GPRegister::X30:
+      return offsetof(struct user_pt_regs, regs) + static_cast<int>(reg) * sizeof(uint64_t);
+      break;
+    case GPRegister::SP:
+      return offsetof(struct user_pt_regs, sp);
+      break;
+    case GPRegister::PC:
+      return offsetof(struct user_pt_regs, pc);
+      break;
+    case GPRegister::PSTATE:
+      return offsetof(struct user_pt_regs, pstate);
+      break;
+    default:
+      LOG_ERROR("不支持的寄存器: %s", get_gpr_name(reg));
+      return std::nullopt;
   }
+
+}
+
+std::optional<uint64_t> RegisterControl::get_fpr_offset(FPRegister reg)
+{
+  switch (reg) 
+  {
+    case FPRegister::V0 ... FPRegister::V31: 
+    {
+      uint64_t base_offset = offsetof(struct user_fpsimd_state, vregs);
+      uint64_t elem_offset = static_cast<int>(reg) * sizeof(__uint128_t);
+      return base_offset + elem_offset;
+    }
+    case FPRegister::FPSR:
+      return offsetof(struct user_fpsimd_state, fpsr);
+    case FPRegister::FPCR:
+      return offsetof(struct user_fpsimd_state, fpcr);
+    default:
+      LOG_ERROR("不支持的寄存器: %d", get_fpr_name(reg));
+      return std::nullopt;
+  }
+}
+
 }

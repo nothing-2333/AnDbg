@@ -16,6 +16,9 @@
 #include "singleton_base.hpp"
 
 
+namespace Core 
+{
+
 // 通用寄存器索引
 enum class GPRegister : int 
 {
@@ -43,7 +46,6 @@ enum class FPRegister : int
 
 // 调试寄存器索引
 enum class DBRegister : int {
-  DBG_INVALID = -1, // 标记未分配的硬件寄存器
   DBG0 = 0, DBG1, DBG2, DBG3, DBG4, DBG5, DBG6, DBG7,
   DBG8, DBG9, DBG10, DBG11, DBG12, DBG13, DBG14, DBG15,
   DBG_INFO,         // 调试信息寄存器
@@ -61,92 +63,88 @@ private:
   RegisterControl() = default;
   ~RegisterControl() = default;
 
-  // ARM64 寄存器集类型
+  // ARM64 寄存器集类型, ptrace 使用, 这里做一个简化
   enum class RegisterType : unsigned int 
   {
-    GPR = NT_PRSTATUS,      // 通用寄存器
-    FPR = NT_FPREGSET,      // 浮点/SIMD寄存器
-    DBG = NT_ARM_HW_BREAK   // 硬件断点调试寄存器
+    GPR = NT_PRSTATUS,
+    FPR = NT_FPREGSET,
+    DBG = NT_ARM_HW_BREAK,
+    SVE = NT_ARM_SVE,
+    PAC = NT_ARM_PAC_MASK,
   };
 
-  // 浮点寄存器值类型: 支持 128 位(V0-V31)或 32 位(fpsr/fpcr)
+  // 寄存器值类型封装, user_fpsimd_state 与 user_hwdebug_state 会有多个类型的成员, 为了统一都做一个类型
+  using GPRValue = uint64_t;
+  using GPRValuePtr = uint64_t*;
   using FPRValue = std::variant<__uint128_t, uint32_t>;
-  using FPRMutablePtr = std::variant<__uint128_t*, uint32_t*>;
-  using FPRConstPtr = std::variant<const __uint128_t*, const uint32_t*>;
+  using FPRValuePtr = std::variant<__uint128_t*, uint32_t*>;
+  using DBGValue = std::pair<uint64_t, uint32_t>;
+  using DBGValuePtr = std::pair<uint64_t*, uint32_t*>;
 
+  
   // ptrace PTRACE_GETREGSET 封装
-  bool ptrace_get_regset(pid_t pid, void* data, size_t size, RegisterType regset);
+  bool ptrace_get_regset(pid_t tid, void* data, size_t size, RegisterType regset);
 
   // ptrace PTRACE_SETREGSET 封装
-  bool ptrace_set_regset(pid_t pid, const void* data, size_t size, RegisterType regset);
+  bool ptrace_set_regset(pid_t tid, const void* data, size_t size, RegisterType regset);
 
-  // 辅助函数
-  uint64_t* get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg);
-  const uint64_t* get_gpr_pointer(const struct user_pt_regs& regs, GPRegister reg) const;
-
-  std::optional<FPRMutablePtr> get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg);
-  std::optional<FPRConstPtr> get_fpr_pointer(const struct user_fpsimd_state& fpr, FPRegister reg) const;
-
-  std::pair<uint64_t*, uint32_t*> get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg);
-  const std::pair<const uint64_t*, const uint32_t*> get_dbg_pointer(const struct user_hwdebug_state& dbg, DBRegister reg) const;
+  // 辅助函数, 根据枚举名和结构体获取对应指针
+  std::optional<GPRValuePtr> get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg);
+  std::optional<FPRValuePtr> get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg);
+  std::optional<DBGValuePtr> get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg);
 
   // 寄存器名称映射
   static const char* gpr_names[static_cast<int>(GPRegister::MAX_REGISTERS)];
   static const char* fpr_names[static_cast<int>(FPRegister::MAX_REGISTERS)];
   static const char* dbg_names[static_cast<int>(DBRegister::MAX_REGISTERS)];
 
+  // 获取寄存器偏移, 用于读写单个寄存器
+  std::optional<uint64_t> get_gpr_offset(GPRegister reg);
+  std::optional<uint64_t> get_fpr_offset(FPRegister reg);
+  std::optional<uint64_t> get_dbg_offset(DBRegister reg);
+
 public: 
 
   // 获取所有通用寄存器
-  std::optional<struct user_pt_regs> get_all_gpr(pid_t pid);
+  std::optional<struct user_pt_regs> get_all_gpr(pid_t tid);
 
   // 设置所有通用寄存器
-  bool set_all_gpr(pid_t pid, const struct user_pt_regs& regs);
+  bool set_all_gpr(pid_t tid, const struct user_pt_regs& regs);
 
   // 获取所有浮点寄存器
-  std::optional<struct user_fpsimd_state> get_all_fpr(pid_t pid);
+  std::optional<struct user_fpsimd_state> get_all_fpr(pid_t tid);
 
   // 设置所有浮点寄存器
-  bool set_all_fpr(pid_t pid, const struct user_fpsimd_state& fpr);
+  bool set_all_fpr(pid_t tid, const struct user_fpsimd_state& fpr);
 
   // 获取所有调试寄存器
-  std::optional<struct user_hwdebug_state> get_all_dbg(pid_t pid);
+  std::optional<struct user_hwdebug_state> get_all_dbg(pid_t tid);
 
   // 设置所有调试寄存器
-  bool set_all_dbg(pid_t pid, const struct user_hwdebug_state& dbg);
+  bool set_all_dbg(pid_t tid, const struct user_hwdebug_state& dbg);
 
   // 获取单个通用寄存器值
-  std::optional<uint64_t> get_gpr(pid_t pid, GPRegister reg);
+  std::optional<GPRValue> get_gpr(pid_t tid, GPRegister reg);
 
   // 设置单个通用寄存器值
-  bool set_gpr(pid_t pid, GPRegister reg, uint64_t value);
+  bool set_gpr(pid_t tid, GPRegister reg, GPRValue value);
 
   // 获取单个浮点寄存器值 128 位
-  std::optional<FPRValue> get_fpr(pid_t pid, FPRegister reg);
+  std::optional<FPRValue> get_fpr(pid_t tid, FPRegister reg);
 
   // 设置单个浮点寄存器值 128 位
-  bool set_fpr(pid_t pid, FPRegister reg, const FPRValue& value);
+  bool set_fpr(pid_t tid, FPRegister reg, const FPRValue& value);
 
   // 获取单个调试寄存器
-  std::optional<std::pair<uint64_t, uint32_t>> get_dbg(pid_t pid, DBRegister reg);
+  std::optional<DBGValue> get_dbg(pid_t tid, DBRegister reg);
 
   // 设置单个调试寄存器
-  bool set_dbg(pid_t pid, DBRegister reg, uint64_t addr, uint32_t ctrl);
-
-  // 获取程序计数器
-  inline std::optional<uint64_t> get_pc(pid_t pid);
-
-  // 设置程序计数器
-  inline bool set_pc(pid_t pid, uint64_t value);
-
-  // 获取栈指针
-  inline std::optional<uint64_t> get_sp(pid_t pid);
-
-  // 设置栈指针
-  inline bool set_sp(pid_t pid, uint64_t value);
+  bool set_dbg(pid_t tid, DBRegister reg, const DBGValue& value);
 
   // 获取寄存器名称
   static const char* get_gpr_name(GPRegister reg);
   static const char* get_fpr_name(FPRegister reg);
   static const char* get_dbg_name(DBRegister reg);
 };
+
+}
