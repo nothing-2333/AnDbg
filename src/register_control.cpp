@@ -36,10 +36,78 @@ const char* RegisterControl::fpr_names[] = {
 
 // 调试寄存器名称映射
 const char* RegisterControl::dbg_names[] = {
-    "dbg0", "dbg1", "dbg2", "dbg3", "dbg4", "dbg5", "dbg6", "dbg7",
-    "dbg8", "dbg9", "dbg10", "dbg11", "dbg12", "dbg13", "dbg14", "dbg15",
-    "dbg_info",
+  "dbg0", "dbg1", "dbg2", "dbg3", "dbg4", "dbg5", "dbg6", "dbg7",
+  "dbg8", "dbg9", "dbg10", "dbg11", "dbg12", "dbg13", "dbg14", "dbg15",
+  "dbg_info",
 };
+
+std::string RegisterControl::gpr2str(GPRegister reg)
+{
+  int index = static_cast<int>(reg);
+  if (index >= 0 && index < static_cast<int>(GPRegister::MAX_REGISTERS))
+    return gpr_names[index];
+
+  return "unknown";
+}
+
+std::string RegisterControl::fpr2str(FPRegister reg)
+{
+  int index = static_cast<int>(reg);
+  if (index >= 0 && index < static_cast<int>(FPRegister::MAX_REGISTERS))
+    return fpr_names[index];
+  
+  return "unknown";
+}
+
+std::string RegisterControl::dbg2str(DBRegister reg)
+{
+  int index = static_cast<int>(reg);
+  if (index >= 0 && index < static_cast<int>(DBRegister::MAX_REGISTERS))
+    return dbg_names[index];
+  
+  return "unknown";
+}
+
+GPRegister RegisterControl::str2gpr(std::string name)
+{
+  const int arr_size = sizeof(gpr_names) / sizeof(gpr_names[0]);
+  for (int i = 0; i < arr_size; ++i)
+  {
+    if (gpr_names[i] == nullptr) continue;
+
+    if (std::strcmp(gpr_names[i], name.c_str()) == 0)
+      return static_cast<GPRegister>(i);
+  }
+
+  return GPRegister::INVALID;
+}
+
+FPRegister RegisterControl::str2fpr(std::string name)
+{
+  const int arr_size = sizeof(fpr_names) / sizeof(fpr_names[0]);
+  for (int i = 0; i < arr_size; ++i)
+  {
+    if (fpr_names[i] == nullptr) continue;
+
+    if (std::strcmp(fpr_names[i], name.c_str()) == 0)
+      return static_cast<FPRegister>(i);
+  }
+
+  return FPRegister::INVALID;
+}
+DBRegister RegisterControl::str2dbg(std::string name)
+{
+  const int arr_size = sizeof(dbg_names) / sizeof(dbg_names[0]);
+  for (int i = 0; i < arr_size; ++i)
+  {
+    if (dbg_names[i] == nullptr) continue;
+
+    if (std::strcmp(dbg_names[i], name.c_str()) == 0)
+      return static_cast<DBRegister>(i);
+  }
+
+  return DBRegister::INVALID;
+}
 
 bool RegisterControl::ptrace_get_regset(pid_t tid, void* data, size_t size, RegisterType type)
 {
@@ -61,9 +129,9 @@ bool RegisterControl::ptrace_set_regset(pid_t tid, const void* data, size_t size
     reinterpret_cast<void*>(static_cast<unsigned int>(type)), &iov, size);
 }
 
-std::optional<struct user_pt_regs> RegisterControl::get_all_gpr(pid_t tid)
+std::optional<user_pt_regs> RegisterControl::get_all_gpr(pid_t tid)
 {
-  struct user_pt_regs regs;
+  user_pt_regs regs;
   if (ptrace_get_regset(tid, &regs, sizeof(regs), RegisterType::GPR))
   {
     return regs;
@@ -71,15 +139,15 @@ std::optional<struct user_pt_regs> RegisterControl::get_all_gpr(pid_t tid)
   return std::nullopt;
 }
 
-bool RegisterControl::set_all_gpr(pid_t tid, const struct user_pt_regs& regs)
+bool RegisterControl::set_all_gpr(pid_t tid, const  user_pt_regs& regs)
 {
   return ptrace_set_regset(tid, &regs, sizeof(regs), RegisterType::GPR);
 }
 
 
-std::optional<struct user_fpsimd_state> RegisterControl::get_all_fpr(pid_t tid)
+std::optional<user_fpsimd_state> RegisterControl::get_all_fpr(pid_t tid)
 {
-  struct user_fpsimd_state fpr;
+  user_fpsimd_state fpr;
   if (ptrace_get_regset(tid, &fpr, sizeof(fpr), RegisterType::FPR))
   {
     return fpr;
@@ -87,14 +155,14 @@ std::optional<struct user_fpsimd_state> RegisterControl::get_all_fpr(pid_t tid)
   return std::nullopt;
 }
 
-bool RegisterControl::set_all_fpr(pid_t tid, const struct user_fpsimd_state& fpr)
+bool RegisterControl::set_all_fpr(pid_t tid, const user_fpsimd_state& fpr)
 {
   return ptrace_set_regset(tid, &fpr, sizeof(fpr), RegisterType::FPR);
 }
 
-std::optional<struct user_hwdebug_state> RegisterControl::get_all_dbg(pid_t tid)
+std::optional<user_hwdebug_state> RegisterControl::get_all_dbg(pid_t tid)
 {
-  struct user_hwdebug_state dbg;
+  user_hwdebug_state dbg;
   if (ptrace_get_regset(tid, &dbg, sizeof(dbg), RegisterType::DBG)) 
   {
       return dbg;
@@ -102,7 +170,7 @@ std::optional<struct user_hwdebug_state> RegisterControl::get_all_dbg(pid_t tid)
   return std::nullopt;
 }
 
-bool RegisterControl::set_all_dbg(pid_t tid, const struct user_hwdebug_state& dbg)
+bool RegisterControl::set_all_dbg(pid_t tid, const user_hwdebug_state& dbg)
 {
   return ptrace_set_regset(tid, &dbg, sizeof(dbg), RegisterType::DBG);
 }
@@ -234,34 +302,7 @@ bool RegisterControl::set_dbg(pid_t tid, DBRegister reg, const DBGValue& value)
   return set_all_dbg(tid, dbg);
 }
 
-const char* RegisterControl::get_gpr_name(GPRegister reg)
-{
-  int index = static_cast<int>(reg);
-  if (index >= 0 && index < static_cast<int>(GPRegister::MAX_REGISTERS))
-    return gpr_names[index];
-
-  return "unknown";
-}
-
-const char* RegisterControl::get_fpr_name(FPRegister reg)
-{
-  int index = static_cast<int>(reg);
-  if (index >= 0 && index < static_cast<int>(FPRegister::MAX_REGISTERS))
-    return fpr_names[index];
-  
-  return "unknown";
-}
-
-const char* RegisterControl::get_dbg_name(DBRegister reg)
-{
-  int index = static_cast<int>(reg);
-  if (index >= 0 && index < static_cast<int>(DBRegister::MAX_REGISTERS))
-    return dbg_names[index];
-  
-  return "unknown";
-}
-
-std::optional<RegisterControl::GPRValuePtr> RegisterControl::get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg)
+std::optional<RegisterControl::GPRValuePtr> RegisterControl::get_gpr_pointer(user_pt_regs& regs, GPRegister reg)
 {
   if (reg >= GPRegister::X0 && reg <= GPRegister::X30)
   {
@@ -278,7 +319,7 @@ std::optional<RegisterControl::GPRValuePtr> RegisterControl::get_gpr_pointer(str
   }
 }
 
-std::optional<RegisterControl::FPRValuePtr> RegisterControl::get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg)
+std::optional<RegisterControl::FPRValuePtr> RegisterControl::get_fpr_pointer(user_fpsimd_state& fpr, FPRegister reg)
 {
   if (reg >= FPRegister::V0 && reg <= FPRegister::V31)
   {
@@ -296,7 +337,7 @@ std::optional<RegisterControl::FPRValuePtr> RegisterControl::get_fpr_pointer(str
   }
 }
 
-std::optional<RegisterControl::DBGValuePtr> RegisterControl::get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg)
+std::optional<RegisterControl::DBGValuePtr> RegisterControl::get_dbg_pointer(user_hwdebug_state& dbg, DBRegister reg)
 {
   int index = static_cast<int>(reg);
   if (index >= static_cast<int>(DBRegister::DBG0) && index <= static_cast<int>(DBRegister::DBG15))
@@ -314,19 +355,19 @@ std::optional<uint64_t> RegisterControl::get_gpr_offset(GPRegister reg)
   switch (reg) 
   {
     case GPRegister::X0 ... GPRegister::X30:
-      return offsetof(struct user_pt_regs, regs) + static_cast<int>(reg) * sizeof(uint64_t);
+      return offsetof( user_pt_regs, regs) + static_cast<int>(reg) * sizeof(uint64_t);
       break;
     case GPRegister::SP:
-      return offsetof(struct user_pt_regs, sp);
+      return offsetof( user_pt_regs, sp);
       break;
     case GPRegister::PC:
-      return offsetof(struct user_pt_regs, pc);
+      return offsetof( user_pt_regs, pc);
       break;
     case GPRegister::PSTATE:
-      return offsetof(struct user_pt_regs, pstate);
+      return offsetof( user_pt_regs, pstate);
       break;
     default:
-      LOG_ERROR("不支持的寄存器: %s", get_gpr_name(reg));
+      LOG_ERROR("不支持的寄存器: %s", gpr2str(reg));
       return std::nullopt;
   }
 
@@ -338,16 +379,16 @@ std::optional<uint64_t> RegisterControl::get_fpr_offset(FPRegister reg)
   {
     case FPRegister::V0 ... FPRegister::V31: 
     {
-      uint64_t base_offset = offsetof(struct user_fpsimd_state, vregs);
+      uint64_t base_offset = offsetof(user_fpsimd_state, vregs);
       uint64_t elem_offset = static_cast<int>(reg) * sizeof(__uint128_t);
       return base_offset + elem_offset;
     }
     case FPRegister::FPSR:
-      return offsetof(struct user_fpsimd_state, fpsr);
+      return offsetof(user_fpsimd_state, fpsr);
     case FPRegister::FPCR:
-      return offsetof(struct user_fpsimd_state, fpcr);
+      return offsetof(user_fpsimd_state, fpcr);
     default:
-      LOG_ERROR("不支持的寄存器: %d", get_fpr_name(reg));
+      LOG_ERROR("不支持的寄存器: %d", fpr2str(reg));
       return std::nullopt;
   }
 }

@@ -29,7 +29,8 @@ enum class GPRegister : int
   SP,             // 栈指针 (X31)
   PC,             // 程序计数器
   PSTATE,         // 处理器状态
-  MAX_REGISTERS
+  MAX_REGISTERS,
+  INVALID,
 };
 
 // 浮点寄存器索引
@@ -41,7 +42,8 @@ enum class FPRegister : int
   V24, V25, V26, V27, V28, V29, V30, V31,
   FPSR, // 浮点状态寄存器
   FPCR, // 浮点控制寄存器
-  MAX_REGISTERS
+  MAX_REGISTERS,
+  INVALID,
 };
 
 // 调试寄存器索引
@@ -49,21 +51,14 @@ enum class DBRegister : int {
   DBG0 = 0, DBG1, DBG2, DBG3, DBG4, DBG5, DBG6, DBG7,
   DBG8, DBG9, DBG10, DBG11, DBG12, DBG13, DBG14, DBG15,
   DBG_INFO,         // 调试信息寄存器
-  MAX_REGISTERS
+  MAX_REGISTERS,
+  INVALID,
 };
 
 class RegisterControl : public SingletonBase<RegisterControl>
 {
-private:
-
-  // 友元声明, 允许基类访问子类的私有构造函数
-  friend class SingletonBase<RegisterControl>; 
-
-  // 私有构造函数, 析构函数
-  RegisterControl() = default;
-  ~RegisterControl() = default;
-
-  // ARM64 寄存器集类型, ptrace 使用, 这里做一个简化
+public:
+  // ARM64 寄存器集类型
   enum class RegisterType : unsigned int 
   {
     GPR = NT_PRSTATUS,
@@ -72,7 +67,7 @@ private:
     SVE = NT_ARM_SVE,
     PAC = NT_ARM_PAC_MASK,
   };
-
+  
   // 寄存器值类型封装, user_fpsimd_state 与 user_hwdebug_state 会有多个类型的成员, 为了统一都做一个类型
   using GPRValue = uint64_t;
   using GPRValuePtr = uint64_t*;
@@ -81,29 +76,35 @@ private:
   using DBGValue = std::pair<uint64_t, uint32_t>;
   using DBGValuePtr = std::pair<uint64_t*, uint32_t*>;
 
-  
+private:
+  // 友元声明, 允许基类访问子类的私有构造函数
+  friend class SingletonBase<RegisterControl>; 
+
+  // 私有构造函数, 析构函数
+  RegisterControl() = default;
+  ~RegisterControl() = default;
+
   // ptrace PTRACE_GETREGSET 封装
   bool ptrace_get_regset(pid_t tid, void* data, size_t size, RegisterType regset);
 
   // ptrace PTRACE_SETREGSET 封装
   bool ptrace_set_regset(pid_t tid, const void* data, size_t size, RegisterType regset);
 
-  // 辅助函数, 根据枚举名和结构体获取对应指针
-  std::optional<GPRValuePtr> get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg);
-  std::optional<FPRValuePtr> get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg);
-  std::optional<DBGValuePtr> get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg);
-
   // 寄存器名称映射
   static const char* gpr_names[static_cast<int>(GPRegister::MAX_REGISTERS)];
   static const char* fpr_names[static_cast<int>(FPRegister::MAX_REGISTERS)];
   static const char* dbg_names[static_cast<int>(DBRegister::MAX_REGISTERS)];
 
+public: 
+  // 辅助函数, 根据枚举名和结构体获取对应指针
+  std::optional<GPRValuePtr> get_gpr_pointer(struct user_pt_regs& regs, GPRegister reg);
+  std::optional<FPRValuePtr> get_fpr_pointer(struct user_fpsimd_state& fpr, FPRegister reg);
+  std::optional<DBGValuePtr> get_dbg_pointer(struct user_hwdebug_state& dbg, DBRegister reg);
+
   // 获取寄存器偏移, 用于读写单个寄存器
   std::optional<uint64_t> get_gpr_offset(GPRegister reg);
   std::optional<uint64_t> get_fpr_offset(FPRegister reg);
   std::optional<uint64_t> get_dbg_offset(DBRegister reg);
-
-public: 
 
   // 获取所有通用寄存器
   std::optional<struct user_pt_regs> get_all_gpr(pid_t tid);
@@ -141,10 +142,13 @@ public:
   // 设置单个调试寄存器
   bool set_dbg(pid_t tid, DBRegister reg, const DBGValue& value);
 
-  // 获取寄存器名称
-  static const char* get_gpr_name(GPRegister reg);
-  static const char* get_fpr_name(FPRegister reg);
-  static const char* get_dbg_name(DBRegister reg);
+  // 字符串与枚举转换
+  static std::string gpr2str(GPRegister reg);
+  static std::string fpr2str(FPRegister reg);
+  static std::string dbg2str(DBRegister reg);
+  static GPRegister str2gpr(std::string name);
+  static FPRegister str2fpr(std::string name);
+  static DBRegister str2dbg(std::string name);
 };
 
 }

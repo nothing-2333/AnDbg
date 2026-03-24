@@ -1,190 +1,100 @@
 #pragma once
 
-#include "log.hpp"
-#include <memory>
-#include <sched.h>
 #include <string>
-#include <sys/ptrace.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#include <unordered_map>
 #include <vector>
-#include "breakpoint_manager.hpp"
+#include "register_control.hpp"
+#include "status.hpp"
 
-class LaunchInfo;
+#include <nlohmann/json.hpp>
 
+namespace Core 
+{
+
+// 封装一些实现, 要求输入或输出类型必须容易转换
 class DebuggerCore
 {
-private:
-  pid_t m_pid;
-  std::vector<pid_t> m_tids;
-  std::unique_ptr<BreakpointManager> breakpoint_manager;
-
 public:
   DebuggerCore();
+  ~DebuggerCore();
 
-  // 启动
-  bool launch(LaunchInfo& launch_info);
+  // 进程控制
+  Base::Status attach(pid_t pid);
+  Base::Status attach(const std::string& package_name);
+  Base::Status launch(const std::string& package_activity);
+  Base::Status detach();
+  Base::Status kill();
 
-  // 附加
-  bool attach(pid_t pid);
+  // // 执行控制
+  // Status resume();
+  // Status step_into(pid_t tid = -1);
+  // Status step_over(pid_t tid = -1);
+  // Status step_out(pid_t tid = -1);
+  // Status pause();
 
-  // 分离
-  bool detach();
+  // // 内存操作
+  // Status read_memory(uint64_t address, size_t size, void *buf, size_t &bytes_read);
+  // Status write_memory(uint64_t address, size_t size, const void *buf, size_t &bytes_written);
+  // Status read_memory_tags(int32_t type, uint64_t address, size_t len, std::vector<uint8_t> &tags);
+  // Status write_memory_tags(int32_t type, uint64_t address, size_t len, const std::vector<uint8_t> &tags);
+  // Status allocate_memory(size_t size, uint32_t permissions);
+  // Status deallocate_memory(size_t size);
+  // Status get_memory_regions(uint64_t load_addr, std::vector<MemoryRegion>& result);
+  // Status get_memory_map(std::vector<MemoryRegion>& result);
 
-  // 单步步入
-  bool step_into(pid_t tid = -1);
+  // 寄存器操作
+  /* 接受和返回数据举例
+  {
+    "GPR": {
+      "x0": "0x123456"
+    },
+    "FPR": {
+      "v0": "0x14511"
+    }
+  }
 
-  // 单步步过
-  bool step_over(pid_t tid = -1);
-  
-  // 执行
-  bool run();
-  
-  // 设置断点
-  bool set_breakpoint();
+  {
+    "GPR": "all",
+    "FPR": ["v0", "v1", "v3"]
+  }
+  */
+  Base::Status write_registers(nlohmann::json json_data);
+  Base::Status read_registers(nlohmann::json json_data, nlohmann::json& result);
 
-  // 移除断点
-  bool remove_breakpoint();
+  // // 断点管理
+  // Status set_breakpoint(uint64_t address, BreakpointCondition condition, int& breakpoint_id);
+  // Status remove_breakpoint(int breakpoint_id);
+  // Status enable_breakpoint(int breakpoint_id);
+  // Status disable_breakpoint(int breakpoint_id);
+  // Status get_breakpoints(std::vector<Breakpoint>& breakpoints);
 
-  // 启用断点
-  bool enable_breakpoint();
+  // // 反汇编
+  // Status disassemble(uint64_t address, size_t count, DisassemblyResult& result);
+  // Status generate_cfg();
 
-  // 禁用断点
-  bool disable_breakpoint();
+  // // 线程管理
+  Base::Status get_threads(std::vector<pid_t>& threads);
+  Base::Status switch_thread(pid_t tid);
 
-  // 读取内存
-  bool read_memory();
+  // 状态查询
+  Base::Status get_pid(pid_t& pit);
+  Base::Status get_current_tid(pid_t& tid);
 
-  // 写入内存
-  bool write_memory();
-
-  // 读取寄存器
-  bool read_register();
-
-  // 写入寄存器
-  bool write_register();
-
-  // 注入 ELF
-  bool inject_elf();
-
-  // 获取相关内存布局
-  bool get_memory_layout();
+  // // 符号解析
+  // Status symbol_to_address(const std::string& symbol_name, std::optional<uint64_t>& address);
+  // Status address_to_symbol(uint64_t address, std::optional<std::string>& symbol_name);
 
 private:
-  bool child_process_execute(LaunchInfo& launch_info);
-
-  bool parent_process_execute(pid_t pid, LaunchInfo& launch_info);
-
   // 设置默认 ptrace 调试选项
   bool set_default_ptrace_options(pid_t pid);
+
+  // 主线程 pid
+  pid_t m_pid;
+  // 所有 tids
+  std::vector<pid_t> m_tids;
+  // 当前 tid
+  pid_t m_current_tid;
+  // 寄存器控制
+  RegisterControl& register_crl;
 };
 
-// launch 方法的参数处理类
-class LaunchInfo
-{
-private:
-  // 存储
-  std::string path_;                // 路径
-  std::vector<std::string> args_;   // 参数
-  std::vector<std::string> env_;    // 环境
-
-  std::string package_name_;        // 包名
-  std::string main_activity_;       // 主 Activity
-
-  // 缓冲区: 存储转换后的 char* 指针(避免重复分配，mutable 允许 const 方法修改)
-  mutable std::vector<char*> argv_buffer_;  // 用于 get_argv()
-  mutable std::vector<char*> envp_buffer_;  // 用于 get_envp()
-          
-public:
-  enum class LaunchMode
-  {
-    BINARY,   // 模式1：执行 Linux 二进制可执行文件
-    APP       // 模式2：包名启动 APP
-  };
-
-  LaunchMode mode;
-
-public:
-  LaunchInfo(std::string&& path, std::vector<std::string>&& args, std::vector<std::string>&& env={})
-    : path_(std::move(path)), args_(std::move(args)), env_(std::move(env)), mode(LaunchMode::BINARY) {};
-  LaunchInfo(std::string&& package_name, std::string&& main_activity)
-   : package_name_(std::move(package_name)), main_activity_(std::move(main_activity)), mode(LaunchMode::APP) {}
-  ~LaunchInfo() = default;
-
-  explicit LaunchInfo(std::string&& android_target)
-  {
-    mode = LaunchMode::APP;
-
-    auto split_pos = android_target.find('/');
-    if (split_pos != std::string::npos)
-    {
-      package_name_ = android_target.substr(0, split_pos);
-      main_activity_ = android_target.substr(split_pos); // 保留开头的/, 适配am start格式
-    }
-    else
-    {
-      package_name_ = std::move(android_target);
-      LOG_WARNING("未发现包名分隔符, Activity 留空");
-    }
-  }
-
-  char const *get_path() const { return path_.c_str(); };
-  
-  // 新程序的命令行参数 {"程序的路径", "参数1", "参数2", ..., NULL}
-  char *const *get_argv() const
-  { 
-    argv_buffer_.clear();
-    for (const auto& arg : args_)
-    {
-      argv_buffer_.push_back(const_cast<char*>(arg.c_str()));
-    }
-    argv_buffer_.push_back(nullptr);
-    return argv_buffer_.data();
-  }        
-
-  // 新程序的环境变量 {"KEY=VALUE", ..., NULL}
-  char *const *get_envp() const
-  {
-    // 若未提供自定义环境变量, 使用当前进程的环境变量
-    if (env_.empty()) 
-    {
-        extern char** environ;  // 声明全局环境变量数组
-        return environ;
-    }
-
-    envp_buffer_.clear();
-    for (const auto& e : env_) 
-    {
-        envp_buffer_.push_back(const_cast<char*>(e.c_str()));
-    }
-    envp_buffer_.push_back(nullptr);
-    return envp_buffer_.data();
-  }
-
-  // 获取 APP 包名
-  const std::string& get_package_name() const { return package_name_; }
-  // 获取 APP 主 Activity
-  const std::string& get_main_activity() const { return main_activity_; }
-
-  std::string get_am_cmd(std::unordered_map<std::string, std::string> extra={}) const
-  {
-    if (package_name_.empty() || mode != LaunchMode::APP) return "";
-
-    std::ostringstream oss;
-    oss << "am start -D -n " << package_name_ << main_activity_
-      << " -a android.intent.action.MAIN"
-      << " -c android.intent.category.LAUNCHER";
-
-    for (const auto& [ key, value ] : extra)
-    {
-      if (value.empty())
-        oss << " " << key;
-      else 
-        oss << " " << key << " " << value;
-    }
-
-    return oss.str();
-  }
-};
+}

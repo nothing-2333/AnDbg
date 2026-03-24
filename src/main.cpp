@@ -1,32 +1,76 @@
 #include "rpc_server.hpp"
 #include "debugger_core.hpp"
 #include "log.hpp"
+#include "status.hpp"
+#include <string>
+#include "utils.hpp"
 
 
-void acp_init(RPCServer& server, DebuggerCore& debugger)
+void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
 {
+  server.register_handler("attach", [&debugger](std::vector<char>& params) -> std::vector<char> 
+  {
+    Base::Status status = debugger.attach(Utils::vec_to_str(params));
+
+    if (status.is_success()) 
+    {
+      return Utils::str_to_vec("成功");
+    }
+    else 
+    {
+      return Utils::str_to_vec(status.to_string());
+    }
+  });
+
   server.register_handler("launch", [&debugger](std::vector<char>& params) -> std::vector<char> 
   {
+    Base::Status status = debugger.launch(Utils::vec_to_str(params));
 
-    LaunchInfo launch_info(std::move("com.ss.android.ugc.aweme/.splash.SplashActivity"));
-    bool ret = debugger.launch(launch_info);
-
-    std::vector<char> result;
-    if (ret) 
+    if (status.is_success()) 
     {
-      result.push_back(1); // 1 表示启动成功
-    } else 
-    {
-      result.push_back(0); // 0 表示启动失败
+      return Utils::str_to_vec("成功");
     }
-    return result;
+    else 
+    {
+      return Utils::str_to_vec(status.to_string());
+    }
+  });
+
+  server.register_handler("detach", [&debugger](std::vector<char>& params) -> std::vector<char> 
+  {
+
+    Base::Status status = debugger.detach();
+
+    if (status.is_success()) 
+    {
+      return Utils::str_to_vec("成功");
+    }
+    else 
+    {
+      return Utils::str_to_vec(status.to_string());
+    }
+  });
+
+  server.register_handler("kill", [&debugger](std::vector<char>& params) -> std::vector<char> 
+  {
+
+    Base::Status status = debugger.kill();
+
+    if (status.is_success()) 
+    {
+      return Utils::str_to_vec("成功");
+    }
+    else 
+    {
+      return Utils::str_to_vec(status.to_string());
+    }
   });
 }
 
 int main()
 {
-  DebuggerCore debugger;
-  RPCServer server;
+  Core::DebuggerCore debugger;
+  Base::RPCServer server;
   acp_init(server, debugger);
   server.start();
   return 0;

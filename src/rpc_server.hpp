@@ -7,6 +7,10 @@
 #include <string>
 #include <functional>
 
+namespace Base 
+{
+
+
 struct Message
 {
   std::string command;
@@ -74,3 +78,5 @@ private:
   // 安全关闭文件句柄
   void safe_close_fd(int& fd);
 };
+
+}

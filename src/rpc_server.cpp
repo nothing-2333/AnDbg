@@ -4,12 +4,16 @@
 #include <cstdint>
 #include <mutex>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #include "log.hpp"
 #include "rpc_server.hpp"
 #include "utils.hpp"
 
+
+namespace Base 
+{
 
 // // 64位主机序 → 网络序(大端序)
 // static uint64_t htonll(uint64_t host64) 
@@ -269,8 +273,16 @@ void RPCServer::handle_client(int client_fd)
       {
         // 调用处理函数
         response.content = handler(message.content);
-        LOG_DEBUG("response.content.size {}", response.content.size());
-        response.command = "success";
+        if (Utils::vec_to_str(std::move(response.content)) == "success")
+        {
+          response.command = "success";
+          response.content = {};
+        }
+        else  
+        {
+          response.command = "fail";
+        }
+        
         LOG_DEBUG("命令 {} 处理完成", message.command);
       }
       catch (const std::exception& e) 
@@ -382,3 +394,6 @@ std::vector<char> RPCServer::serialize_message(const Message& message)
 
   return data;
 }
+
+}
+
