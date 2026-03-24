@@ -25,16 +25,43 @@ namespace Utils
 // ptrace 包装
 bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size, long* result = nullptr);
 
-// waitpid 包装
-// @param options 等待选项:
-// - 0: 阻塞模式, 直到目标子进程状态变化(退出/暂停)
-// - WNOHANG: 非阻塞模式, 无状态变化时立即返回0
-// - WUNTRACED: 监听子进程暂停事件(如收到SIGSTOP), 即使未跟踪该进程
-// - WCONTINUED: 监听子进程恢复运行事件(收到SIGCONT)
-// 返回值:
-//   - >0: 已退出/暂停的子进程 PID
-//   -  0: 非阻塞模式下, 子进程仍在运行
-//   - -1: 调用失败, errno 会被设置
+/**
+ * @brief waitpid 系统调用的包装函数
+ * 
+ * @param pid 目标进程ID, 指定等待哪个子进程: 
+ *            - >0: 等待特定PID的子进程
+ *            - -1: 等待任意子进程
+ *            - 0: 等待与调用进程同进程组的任意子进程
+ *            - <-1: 等待进程组 ID 等于 pid 绝对值的任意子进程
+ * 
+ * @param status 输出参数, 存储子进程状态信息。可使用以下宏检查: 
+ *               - WIFEXITED(status): 子进程正常退出
+ *               - WEXITSTATUS(status): 获取退出状态码（仅当WIFEXITED为真）
+ *               - WIFSIGNALED(status): 子进程因信号终止
+ *               - WTERMSIG(status): 获取终止信号的编号（仅当WIFSIGNALED为真）
+ *               - WIFSTOPPED(status): 子进程因信号暂停
+ *               - WSTOPSIG(status): 获取暂停信号的编号（仅当WIFSTOPPED为真）
+ *               - WIFCONTINUED(status): 子进程已从暂停状态恢复
+ * 
+ * @param __options 等待选项: 
+ *                  - 0: 阻塞模式, 直到目标子进程状态变化(退出/暂停)
+ *                  - WNOHANG(0x00000001): 非阻塞模式, 无状态变化时立即返回0
+ *                  - WUNTRACED(0x00000002): 监听子进程暂停事件(如收到SIGSTOP), 即使未跟踪该进程
+ *                  - WEXITED(0x00000004): 监听已终止的子进程
+ *                  - WCONTINUED(0x00000008): 监听子进程恢复运行事件(收到SIGCONT)
+ *                  - WNOWAIT(0x01000000): 保持子进程在等待状态, 可再次waitpid
+ *                  - __WNOTHREAD(0x20000000): 不等待兄弟线程的子进程
+ *                  - __WALL(0x40000000): 监听所有类型的子进程状态变化
+ *                  - __WCLONE(0x80000000): 仅等待clone创建的子进程
+ * 
+ * @return pid_t 返回值含义: 
+ *              - >0: 状态已变化的子进程PID
+ *              -  0: 非阻塞模式下, 子进程仍在运行且状态未变化
+ *              - -1: 调用失败, 检查errno: 
+ *                    - ECHILD: 指定的 pid 子进程不存在
+ *                    - EINVAL: 无效的 options 参数
+ *                    - EINTR:  被信号中断
+ */
 pid_t waitpid_wrapper(pid_t pid, int* status, int __options);
 
 long get_page_size();
@@ -115,13 +142,90 @@ template <typename T> T from_big_endian(T big_val)
 }
 
 // 匹配字符串
-enum class MatchMode 
-{
-  INSENSITIVE,  // 忽略大小写
-  SENSITIVE,    // 严格匹配, 大小写敏感
-};
-bool contains_string(const std::string& src, const std::string& target, MatchMode mode);
+bool contains_string(const std::string& src, const std::string& target, bool is_sensitivity);
 
+// 类型转换
+inline std::vector<char> str_to_vec(const std::string& str)
+{
+  return std::vector<char>(str.begin(), str.end());
+}
+inline std::string vec_to_str(const std::vector<char>& vec) 
+{
+  return std::string(vec.begin(), vec.end());
+}
+
+// 字符串小写
+std::string to_lower(std::string str);
+
+// 按空格分割字符串
+std::vector<std::string> split_by_space(const std::string& s);
+
+// 十六进制字符串解析
+template <typename T>
+std::optional<T> hex_str_to_num(const std::string& hex_str)
+{
+  static_assert(std::is_unsigned_v<T>, "hex_str_to_num 只支持无符号类型");
+
+  T result = 0;
+  size_t start = 0;
+
+  // 去除前缀
+  if (hex_str.size() >= 2)
+  {
+    std::string prefix = hex_str.substr(0, 2);
+    if (prefix == "0x" || prefix == "0X")
+      start = 2;
+  }
+
+  // 只有前缀
+  if (start >= hex_str.size())
+    return std::nullopt;
+
+  // 逐字符解析十六进制
+  for (size_t i = start; i < hex_str.size(); ++i)
+  {
+    char c = hex_str[i];
+    T digit = 0;
+
+    if (c >= '0' && c <= '9') 
+      digit = static_cast<T>(c - '0');
+    else if (c >= 'a' && c <= 'f')
+      digit = static_cast<T>(10 + c - 'a');
+    else if (c >= 'A' && c <= 'F')
+      digit = static_cast<T>(10 + c - 'A');
+    else 
+      return std::nullopt;
+    
+    // 只做位移 + 加数字, 依赖硬件自动截断溢出
+    result <<= 4; 
+    result += digit;
+  }
+
+  return result;
+}
+
+template <typename T>
+std::optional<std::string> num_to_hex_str(T num)
+{
+  static_assert(std::is_unsigned_v<T>, "num_to_hex_str 只支持无符号类型");
+
+  if (num == 0) return "0x0";
+
+  constexpr const char* hex_digits = "0123456789abcdef";
+  std::string hex_str;
+  
+  // 从低位到高位逐位解析数值
+  while (num > 0)
+  {
+    // 取最后 4 位
+    uint8_t nibble = static_cast<uint8_t>(num & 0xF);
+    hex_str.push_back(hex_digits[nibble]);
+    num >>= 4;
+  }
+  std::reverse(hex_str.begin(), hex_str.end());
+
+  return "0x" + hex_str;
+}
 
 }
 

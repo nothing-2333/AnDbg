@@ -5,84 +5,12 @@
 #include <filesystem>
 #include <algorithm>
 
-#include "proc_file.hpp"
+#include "process.hpp"
 #include "log.hpp"
 #include "utils.hpp"
 
-namespace 
+namespace Process 
 {
-  // 文件类型到文件名的映射
-  const std::unordered_map<ProcFileType, std::string> FILE_TYPE_TO_NAME = 
-  {
-    // 进程基本信息
-    {ProcFileType::STATUS, "status"},
-    {ProcFileType::CMDLINE, "cmdline"},
-    {ProcFileType::COMM, "comm"},
-    {ProcFileType::EXE, "exe"},
-    {ProcFileType::CWD, "cwd"},
-    
-    // 内存相关信息
-    {ProcFileType::MAPS, "maps"},
-    {ProcFileType::SMAPS, "smaps"},
-    {ProcFileType::SMAPS_ROLLUP, "smaps_rollup"},
-    {ProcFileType::STATM, "statm"},
-    {ProcFileType::PAGEMAP, "pagemap"},
-    {ProcFileType::CLEAR_REFS, "clear_refs"},
-    
-    // 线程和进程信息
-    {ProcFileType::TASK, "task"},
-    {ProcFileType::STAT, "stat"},
-    
-    // 文件系统信息
-    {ProcFileType::FD, "fd"},
-    {ProcFileType::MOUNTS, "mounts"},
-    {ProcFileType::MOUNTINFO, "mountinfo"},
-    {ProcFileType::MOUNTSTATS, "mountstats"},
-    
-    // IO 和调度信息
-    {ProcFileType::IO, "io"},
-    {ProcFileType::SCHED, "sched"},
-    {ProcFileType::SCHEDSTAT, "schedstat"},
-    
-    // 系统调用和内核信息
-    {ProcFileType::SYSCALL, "syscall"},
-    {ProcFileType::WCHAN, "wchan"},
-    {ProcFileType::STACK, "stack"},
-    {ProcFileType::PERSONALITY, "personality"},
-    
-    // 资源限制和配置
-    {ProcFileType::LIMITS, "limits"},
-    {ProcFileType::OOM_SCORE, "oom_score"},
-    {ProcFileType::OOM_ADJ, "oom_adj"},
-    {ProcFileType::OOM_SCORE_ADJ, "oom_score_adj"},
-    
-    // 命名空间和容器
-    {ProcFileType::CGROUP, "cgroup"},
-    {ProcFileType::NS, "ns"},
-    {ProcFileType::UID_MAP, "uid_map"},
-    {ProcFileType::GID_MAP, "gid_map"},
-    {ProcFileType::AUTOGROUP, "autogroup"},
-    
-    // 其他信息
-    {ProcFileType::ENVIRON, "environ"},
-    {ProcFileType::AUXV, "auxv"},
-    {ProcFileType::TIMERS, "timers"},
-    {ProcFileType::TIMERSLACK_NS, "timerslack_ns"},
-    {ProcFileType::SESSIONID, "sessionid"},
-    {ProcFileType::LOGINUID, "loginuid"},
-
-    // 网络信息
-    {ProcFileType::NET, "net"},
-  };
-  
-  // 目录类型的集合
-  const std::unordered_set<ProcFileType> DIRECTORY_TYPES = 
-  {
-    ProcFileType::TASK,
-    ProcFileType::FD,
-    ProcFileType::NET,
-  };
-}
 
 std::string ProcFile::get_filename(ProcFileType type) 
 {
@@ -144,13 +72,13 @@ std::optional<ProcFile> ProcFile::open(const std::string& path)
 
 void ProcFile::open_path(const std::string& path, bool is_directory)
 {
-  if (m_is_directory)
+  if (is_directory)
   {
     DIR* dir = opendir(path.c_str());
     if (!dir) 
     {
-        LOG_ERROR("无法打开目录 {}: {}", path, strerror(errno));
-        return;
+      LOG_ERROR("无法打开目录 {}: {}", path, strerror(errno));
+      return;
     }
     m_dir_handle.reset(dir);
   }
@@ -298,9 +226,6 @@ DIR* ProcFile::directory_handle()
   return m_dir_handle.get();
 }
 
-namespace ProcHelper 
-{
-
 std::vector<pid_t> find_app_process(const std::string& package_name)
 {
   std::vector<pid_t> match_pids;
@@ -340,30 +265,17 @@ std::vector<pid_t> find_app_process(const std::string& package_name)
     pid_t pid = static_cast<pid_t>(std::atoi(name));
     if (pid <= 0) continue;
 
-    // 读取 /proc/[pid]/cmdline（优先，包含完整包名/命令行）
+    // 读取 /proc/[pid]/cmdline
     auto cmdline_file = ProcFile::open(pid, ProcFileType::CMDLINE);
     if (cmdline_file && cmdline_file->is_open()) 
     {
       std::string cmdline = cmdline_file->read_all();
       // cmdline 以 '\0' 分隔参数，替换为空格方便匹配
       std::replace(cmdline.begin(), cmdline.end(), '\0', ' ');
-      if (Utils::contains_string(cmdline, package_name, Utils::MatchMode::INSENSITIVE)) 
+      if (Utils::contains_string(cmdline, package_name, false)) 
       {
         match_pids.push_back(pid);
         continue;
-      }
-    }
-
-    // 读取 /proc/[pid]/comm（备用，进程短名，适合简单匹配）
-    auto comm_file = ProcFile::open(pid, ProcFileType::COMM);
-    if (comm_file && comm_file->is_open()) 
-    {
-      std::string comm = comm_file->read_all();
-      // 去除换行符（comm文件末尾通常有\n）
-      comm.erase(std::remove(comm.begin(), comm.end(), '\n'), comm.end());
-      if (Utils::contains_string(comm, package_name, Utils::MatchMode::INSENSITIVE)) 
-      {
-        match_pids.push_back(pid);
       }
     }
   }
@@ -418,21 +330,16 @@ std::vector<pid_t> get_thread_ids(pid_t pid)
   return std::move(tids); 
 }
 
-std::string process_state_to_string(ProcessState state) 
+const char process_state_to_char(ProcessState state) 
 {
-  switch (state) 
-  {
-    case ProcessState::RUNNING:    return "R (running)";
-    case ProcessState::SLEEPING:   return "S (sleeping)";
-    case ProcessState::DISK_SLEEP: return "D (disk sleep)";
-    case ProcessState::STOPPED:    return "T (stopped)";
-    case ProcessState::ZOMBIE:     return "Z (zombie)";
-    case ProcessState::DEAD:       return "X (dead)";
-    case ProcessState::WAITING:    return "W (waiting)";
-    case ProcessState::PARKED:     return "P (parked)";
-    case ProcessState::UNKNOWN:    return "Unknown";
-    default:                       return "Invalid";
-  }
+  auto it = STATE_TO_CHAR.find(state);
+  return (it != STATE_TO_CHAR.end()) ? it->second : '?';
+}
+
+ProcessState char_to_process_state(const char state)
+{
+  auto it = CHAR_TO_STATE.find(state);
+  return (it != CHAR_TO_STATE.end()) ? it->second : ProcessState::UNKNOWN;
 }
 
 ProcessState parse_process_state(pid_t pid)
@@ -468,27 +375,109 @@ ProcessState parse_process_state(pid_t pid)
     }
     char state_char = std::toupper(static_cast<unsigned char>(state_part[0]));
 
-    switch (state_char) 
-    {
-      case 'R': return ProcessState::RUNNING;
-      case 'S': return ProcessState::SLEEPING;
-      case 'D': return ProcessState::DISK_SLEEP;
-      case 'T': return ProcessState::STOPPED;
-      case 'Z': return ProcessState::ZOMBIE;
-      case 'X': return ProcessState::DEAD;
-      case 'W': return ProcessState::WAITING;
-      case 'P': return ProcessState::PARKED;
-      default: 
-      {
-        LOG_WARNING("解析进程状态失败: PID({})发现未知状态字符({})", pid, state_char);
-        return ProcessState::UNKNOWN;
-      }
-    }
+    return char_to_process_state(state_char);
   }
 
   // 未找到 State 字段
   LOG_WARNING("解析进程状态失败: PID({})的 status 文件无 State 字段", pid);
   return ProcessState::UNKNOWN;
+}
+
+bool PSHelper::parse_single_line(std::string line, PSItem& item)
+{
+  auto tokens = Utils::split_by_space(line);
+  if (tokens.size() < 9)
+  {
+    LOG_ERROR("要求有 9 个 字段, 但实际有 {} 个.", tokens.size());
+    return false;
+  }
+
+  item.user = tokens[0];
+  item.pid = std::stoi(tokens[1]);
+  item.ppid = std::stoi(tokens[2]);
+  item.vsz = std::stoull(tokens[3]);
+  item.rss = std::stoull(tokens[4]);
+  item.wchan = tokens[5];
+  item.addr = tokens[6];
+  item.state = char_to_process_state(tokens[7][0]);
+  for (size_t i = 8; i < tokens.size(); ++i)
+  {
+    if (i > 8) item.name += " ";
+    item.name += tokens[i];
+  }
+  
+  return true;
+}
+
+std::vector<PSHelper::PSItem> PSHelper::get_items()
+{
+  std::vector<PSItem> result;
+
+  const char* ps_cmd = "ps -eo user,pid,ppid,vsz,rss,wchan,addr,s,args";
+  FILE* pipe = popen(ps_cmd, "r");
+  if (!pipe) return result;
+
+  char buffer[2048];
+  bool is_first_line = true;
+  while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+  {
+    std::string line(buffer);
+    line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+    line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+
+    if (is_first_line)
+    {
+      is_first_line = false;
+      continue;
+    }
+
+    PSItem item;
+    if (parse_single_line(line, item))
+    {
+      result.push_back(item);
+    }
+  }
+
+  pclose(pipe);
+  return result;
+}
+
+std::vector<pid_t> PSHelper::find_pid_by_name(std::string name, MatchMode mode, bool is_sensitivity)
+{
+  std::vector<pid_t> result;
+  auto all_items = get_items();
+  if (all_items.empty()) return  result;
+
+  if (!is_sensitivity)
+    name = Utils::to_lower(std::move(name)); 
+
+  for (const auto& item : all_items)
+  {
+    std::string ps_name = item.name;
+
+    if (!is_sensitivity)
+      ps_name = Utils::to_lower(std::move(ps_name));
+
+    bool is_match = false;
+    switch (mode) 
+    {
+      case MatchMode::EXACT: is_match = (ps_name == name); break;
+      case MatchMode::CONTAIN: is_match = (ps_name.find(name) != std::string::npos); break;
+      default: is_match = false; break;
+    }
+
+    if (is_match && item.pid != -1)
+    {
+      result.push_back(item.pid);
+    }
+  }
+
+  // 排序, 去重
+  std::sort(result.begin(), result.end());
+  auto last = std::unique(result.begin(), result.end());
+  result.erase(last, result.end());
+
+  return result;
 }
 
 }

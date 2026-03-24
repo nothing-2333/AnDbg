@@ -8,31 +8,15 @@ namespace Utils
 {
 
 // ptrace 包装
-bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size, long* result)
+bool ptrace_wrapper(int request, pid_t pid, void* address, void* data, size_t data_size, long* result)
 {
-  // 参数检查
-  if (pid == -1)
-  {
-    LOG_ERROR("传入无效的 pid");
-    return false;
-  }
-
   long int ret = 0;
 
   // 重置 errno
   errno = 0;
-
   if (request == PTRACE_GETREGSET || request == PTRACE_SETREGSET)
   {
-    if (address == nullptr) 
-    {
-      LOG_ERROR("PTRACE_GETREGSET/SETREGSET 传入的 address 不能为空");
-      ret = -1;
-    }
-    else  
-    {
-      ret = ptrace(request, static_cast<::pid_t>(pid), *reinterpret_cast<unsigned int*>(address), data);
-    }
+    ret = ptrace(request, static_cast<::pid_t>(pid), *reinterpret_cast<unsigned int*>(address), data);
   }
   else  
     ret = ptrace(request, static_cast<::pid_t>(pid), address, data);
@@ -51,7 +35,7 @@ bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t da
     LOG_ERROR("ptrace 调用失败, errno: {}, 错误信息: {}", errno, strerror(errno));
     return false;
   }
-  else return true;;
+  else return true;
 }
 
 pid_t waitpid_wrapper(pid_t pid, int* status, int __options)
@@ -172,22 +156,43 @@ bool syscall_wrapper(pid_t pid)
   return true;
 }
 
-bool contains_string(const std::string& src, const std::string& target, MatchMode mode)
+bool contains_string(const std::string& src, const std::string& target, bool is_sensitivity)
 {
   if (target.empty()) return false;
 
-  switch (mode) 
+  if (!is_sensitivity)
   {
-    case MatchMode::INSENSITIVE: 
-      return std::search(src.begin(), src.end(), target.begin(), target.end(),
-         [](char a, char b) 
-        {
-          return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); 
-        }
-      ) != src.end();
-    case MatchMode::SENSITIVE:
-    default: return src.find(target) != std::string::npos;
+    return std::search(src.begin(), src.end(), target.begin(), target.end(),
+        [](char a, char b) 
+      {
+        return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); 
+      }
+    ) != src.end();
   }
+  else  
+  {
+    return src.find(target) != std::string::npos;
+  }
+}
+
+std::string to_lower(std::string str) 
+{
+  std::transform(str.begin(), str.end(), str.begin(),
+  [](unsigned char c) { return std::tolower(c); });
+  return str;
+}
+
+
+std::vector<std::string> split_by_space(const std::string& s)
+{
+  std::vector<std::string> tokens;
+  std::string token;
+  std::istringstream iss(s);
+  while (iss >> token)
+  {
+    tokens.push_back(token);
+  }
+  return tokens;
 }
 
 }
