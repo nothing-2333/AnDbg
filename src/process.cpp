@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <sys/stat.h>
@@ -149,13 +150,15 @@ std::string ProcFile::read_all() {
   std::streampos original_pos = m_file_stream.tellg();
   m_file_stream.seekg(0, std::ios::beg);
     
-  std::stringstream buffer;
-  buffer << m_file_stream.rdbuf();
+  std::string content;
+  char ch;
+  while (m_file_stream.get(ch)) 
+    content.push_back(ch);
     
   // 恢复位置
   m_file_stream.seekg(original_pos);
     
-  return buffer.str();
+  return content;
 }
 
 std::vector<std::string> ProcFile::read_lines() {
@@ -226,7 +229,7 @@ DIR* ProcFile::directory_handle()
   return m_dir_handle.get();
 }
 
-std::vector<pid_t> find_app_process(const std::string& package_name)
+std::vector<pid_t> find_pid_by_package_name(const std::string& package_name)
 {
   std::vector<pid_t> match_pids;
   if (package_name.empty()) 
@@ -270,7 +273,7 @@ std::vector<pid_t> find_app_process(const std::string& package_name)
     if (cmdline_file && cmdline_file->is_open()) 
     {
       std::string cmdline = cmdline_file->read_all();
-      // cmdline 以 '\0' 分隔参数，替换为空格方便匹配
+      // cmdline 以 '\0' 分隔参数, 替换为空格方便匹配
       std::replace(cmdline.begin(), cmdline.end(), '\0', ' ');
       if (Utils::contains_string(cmdline, package_name, false)) 
       {
@@ -289,6 +292,39 @@ std::vector<pid_t> find_app_process(const std::string& package_name)
   return match_pids;
 }
 
+std::optional<std::string> find_package_name_by_pid(pid_t pid)
+{
+  if (pid <= 0) 
+  {
+    LOG_ERROR("获取包名失败: 无效的PID({})", pid);
+    return std::nullopt;
+  }
+
+  auto cmdline_file = ProcFile::open(pid, ProcFileType::CMDLINE);
+  if (cmdline_file && cmdline_file->is_open()) 
+  {
+    std::string cmdline = cmdline_file->read_all();
+    if (!cmdline.empty()) 
+    {
+      LOG_DEBUG("读取到原始的 cmdline: {}", cmdline);
+      size_t null_pos = cmdline.find('\0');
+      if (null_pos != std::string::npos) 
+        cmdline = cmdline.substr(0, null_pos);
+
+      return cmdline;
+    }
+    else  
+    {
+      LOG_ERROR("cmdline 数据为空");
+      return std::nullopt;
+    }
+  }
+  else  
+  {
+    LOG_ERROR("ProcFile::open 打开文件失败");
+    return std::nullopt;
+  }
+}
 
 // 回去进程所有 pid
 std::vector<pid_t> get_thread_ids(pid_t pid)
@@ -306,7 +342,7 @@ std::vector<pid_t> get_thread_ids(pid_t pid)
 
   for (const auto entry : entrys)
   {
-    if (entry->d_type ==DT_DIR)
+    if (entry->d_type == DT_DIR)
     {
       // 检查目录是否全为数字
       bool is_numeric = true;
@@ -442,11 +478,11 @@ std::vector<PSHelper::PSItem> PSHelper::get_items()
   return result;
 }
 
-std::vector<pid_t> PSHelper::find_pid_by_name(std::string name, MatchMode mode, bool is_sensitivity)
+std::vector<pid_t> PSHelper::find_pid_by_process_name(std::string name, MatchMode mode, bool is_sensitivity)
 {
   std::vector<pid_t> result;
   auto all_items = get_items();
-  if (all_items.empty()) return  result;
+  if (all_items.empty()) return result;
 
   if (!is_sensitivity)
     name = Utils::to_lower(std::move(name)); 
@@ -478,6 +514,19 @@ std::vector<pid_t> PSHelper::find_pid_by_name(std::string name, MatchMode mode, 
   result.erase(last, result.end());
 
   return result;
+}
+
+std::optional<std::string> PSHelper::find_process_name_by_pid(pid_t pid)
+{
+  auto all_items = get_items();
+  if (all_items.empty()) return std::nullopt;
+
+  for (const auto& item : all_items)
+  {
+    if (item.pid == pid) return item.name;
+  }
+
+  return std::nullopt;
 }
 
 }

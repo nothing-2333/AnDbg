@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <cassert>
 #include <linux/wait.h>
+#include <optional>
 #include <string>
 #include <sys/syscall.h>  
+#include <thread>
 #include <variant>
 
 
@@ -25,7 +27,7 @@ DebuggerCore::DebuggerCore() : register_crl(RegisterControl::get_instance())
 
 DebuggerCore::~DebuggerCore()
 {
-
+  
 }
 
 Status DebuggerCore::get_threads(std::vector<pid_t>& threads)
@@ -80,7 +82,7 @@ bool DebuggerCore::set_default_ptrace_options(pid_t pid)
 Status DebuggerCore::attach(pid_t pid)
 {
   auto tids = Process::get_thread_ids(pid);
-  if (tids.empty()) return Status("获取线程 id 有误", StatusType::FAIL);
+  if (tids.empty()) return Status::fail("获取线程 id 有误");
 
   std::vector<pid_t> attached_tids;
 
@@ -110,17 +112,27 @@ Status DebuggerCore::attach(pid_t pid)
   }
 
   if (attached_tids.empty())
-    return Status("没有附加到任何线程", StatusType::FAIL);
+    return Status::fail("没有附加到任何线程");
+
+  // 特殊处理, 主线程可能在调用 attach 前就已经被附加了, 如 launch 中 fork 的子进程 status 会继承父进程的 status
+  if (std::find(attached_tids.begin(), attached_tids.end(), pid) == attached_tids.end())
+  {
+    if (Process::parse_process_state(pid) != Process::ProcessState::STOPPED)
+      return Status::fail("主线程没有被附加");
+    else  
+      attached_tids.push_back(pid);
+  }
+    
 
   m_pid = pid;
   m_tids = attached_tids;
 
-  return Status("attach 成功", StatusType::SUCCESS);
+  return Status::success("attach 成功");
 }
 
 Status DebuggerCore::attach(const std::string& package_name)
 {
-  const auto& match_pids = Process::find_app_process(package_name);
+  const auto& match_pids = Process::find_pid_by_package_name(package_name);
   if (match_pids.size() > 1)
     LOG_WARNING("attach 是发现报名对应多个 pid");
 
@@ -129,11 +141,13 @@ Status DebuggerCore::attach(const std::string& package_name)
 
 Status DebuggerCore::launch(const std::string& package_activity)
 {
+  // todo: 如果 app 已经开启就先关闭在开启
+
   // 找到 zygote 进程
   Process::PSHelper ps_helper;
-  std::vector<pid_t> zygote_pids = ps_helper.find_pid_by_name("zygote64", Process::PSHelper::MatchMode::EXACT, true);
+  std::vector<pid_t> zygote_pids = ps_helper.find_pid_by_process_name("zygote64", Process::PSHelper::MatchMode::EXACT, true);
   if (zygote_pids.empty()) 
-    zygote_pids = ps_helper.find_pid_by_name("zygote", Process::PSHelper::MatchMode::EXACT, true);
+    zygote_pids = ps_helper.find_pid_by_process_name("zygote", Process::PSHelper::MatchMode::EXACT, true);
   if (zygote_pids.empty())
     return Status("未找到 zygote 进程", StatusType::FAIL);
 
@@ -152,16 +166,21 @@ Status DebuggerCore::launch(const std::string& package_activity)
   if (wpid < 0 || !WIFSTOPPED(status)) 
   {
     Utils::ptrace_wrapper(PTRACE_DETACH, zygote_pid, nullptr, nullptr, 0);
-    return Status("等待 zygote 停止失败", StatusType::FAIL);
+    return Status::fail("等待 zygote 停止失败");
   }
   
+  // 设置选项, 监控 fork
   if (!Utils::ptrace_wrapper(PTRACE_SETOPTIONS, zygote_pid, nullptr, 
   (void*)(PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK), 0)) 
   {
     Utils::ptrace_wrapper(PTRACE_DETACH, zygote_pid, nullptr, nullptr, 0);
-    return Status("设置 zygote ptrace 选项失败", StatusType::FAIL);
+    return Status::fail("设置 zygote ptrace 选项失败");
   }
   LOG_DEBUG("已附加到 zygote 进程, 开始监控 fork 调用");
+
+  // 恢复 zygote 运行
+  Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
+  LOG_DEBUG("已恢复 zygote 运行, 等待 app 启动触发 fork 事件");
 
   // 启动目标 app
   std::string start_cmd = "am start -n " + package_activity;
@@ -188,11 +207,90 @@ Status DebuggerCore::launch(const std::string& package_activity)
       return Status("拦截 app PID 超时", StatusType::FAIL);
     }
 
-    // 寄存器模块写完...
+    // 等待 zygote 或其子进程的事件
+    wpid = Utils::waitpid_wrapper(-1, &status, __WALL | WNOHANG); // 非阻塞等待
+    if (wpid < 0)
+    {
+      Utils::ptrace_wrapper(PTRACE_DETACH, zygote_pid, nullptr, nullptr, 0);
+      return Status::fail("等待进程事件失败: errno={}", errno);
+    }
+    else if (wpid == 0)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      continue;
+    }
+    else if (wpid == zygote_pid)
+    {
+      if (WIFSTOPPED(status))
+      {
+        int stop_signal = WSTOPSIG(status);
+        if ((status >> 16) == PTRACE_EVENT_FORK)
+        {
+          LOG_DEBUG("捕获 zygote fork 事件, status: {}", status);
+          pid_t fork_pid = 0;
+          if (Utils::ptrace_wrapper(PTRACE_GETEVENTMSG, zygote_pid, nullptr, &fork_pid, sizeof(fork_pid)))
+          {
+            // 等待包名更新
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            LOG_DEBUG("捕获到 zygote fork 出的子进程 PID: {}", fork_pid);
+
+            std::optional<std::string> child_name = Process::find_package_name_by_pid(fork_pid);
+            if (!child_name) 
+            {
+              Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
+              continue;
+            }
+            LOG_DEBUG("fork 出的进程名称: {}", child_name.value());
+
+            if (!Utils::contains_string(package_activity, child_name.value(), true))
+            {
+              Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
+              continue;
+            }
+            else  
+            {
+              app_pid = fork_pid;
+              LOG_DEBUG("匹配到目标 app pid: {}", app_pid);
+
+              // 此时 app 会继承 zygote 的 status 处于附加状态
+              // LOG_DEBUG("app status: {}", Process::process_state_to_char(Process::parse_process_state(app_pid)));
+
+              // 下面会直接 detach
+              // Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
+              break;
+            }
+          }
+          else 
+          {
+            LOG_ERROR("获取 fork 事件 PID 失败");
+            Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
+            continue;
+          }
+        }
+        // 非 fork 系统调用事件, 继续运行, 使用 PTRACE_SYSCALL
+        else if (stop_signal == (SIGTRAP | 0x80))
+          Utils::ptrace_wrapper(PTRACE_SYSCALL, zygote_pid, nullptr, nullptr, 0);
+        // 其他停止信号，继续运行
+        else
+          Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
+      }
+      else if (WIFEXITED(status) || WIFSIGNALED(status))
+      {
+        LOG_ERROR("zygote 进程退出, status: {}", status);
+        Utils::ptrace_wrapper(PTRACE_DETACH, zygote_pid, nullptr, nullptr, 0);
+        return Status::fail("zygote 进程异常退出, 无法捕获 app pid");
+      }
+    }
+    else  
+    {
+      Utils::ptrace_wrapper(PTRACE_CONT, wpid, nullptr, nullptr, 0);
+    }
   }
 
-  // 附加 app
   Utils::ptrace_wrapper(PTRACE_DETACH, zygote_pid, nullptr, nullptr, 0);
+
+  // 附加 app
   if (app_pid <= 0) 
     return Status::fail("未拦截到 app 进程 PID");
 
@@ -205,6 +303,8 @@ Status DebuggerCore::launch(const std::string& package_activity)
 
 Status DebuggerCore::detach()
 {
+  if (m_pid < 0) Status::fail("m_pid 无效");
+
   bool all_success = true;
   int success_count = 0;
 
@@ -221,13 +321,7 @@ Status DebuggerCore::detach()
     }
   }
 
-  if (all_success)
-  {
-    LOG_DEBUG("成功分离所有线程");
-    m_pid = -1;
-    m_tids.clear();
-  }
-  else 
+  if (!all_success)
     LOG_WARNING("部分线程分离失败, 成功: " + std::to_string(success_count) + "/" + std::to_string(m_tids.size()));
 
   return all_success ? Status("detach 成功", StatusType::SUCCESS) : Status("detach 失败", StatusType::FAIL);
@@ -236,13 +330,14 @@ Status DebuggerCore::detach()
 
 Status DebuggerCore::kill()
 {
-  int ret = syscall(SYS_kill, (pid_t)m_pid, SIGKILL);
+  if (m_pid < 0) Status::fail("m_pid 无效");
 
-  if (ret == -1)
-  {
+  if (::kill(m_pid, SIGKILL) != 0)
     return Status::fail("kill 失败, errno: {}", strerror(errno));
-  }
-  return Status("kill 成功", StatusType::SUCCESS);
+
+  m_pid = -1;
+  m_tids.clear();
+  return Status::success("kill 成功");
 }
 
 Status DebuggerCore::write_registers(nlohmann::json json_data)

@@ -28,37 +28,37 @@ bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t da
 /**
  * @brief waitpid 系统调用的包装函数
  * 
- * @param pid 目标进程ID, 指定等待哪个子进程: 
- *            - >0: 等待特定PID的子进程
- *            - -1: 等待任意子进程
- *            - 0: 等待与调用进程同进程组的任意子进程
- *            - <-1: 等待进程组 ID 等于 pid 绝对值的任意子进程
+ * @param pid 目标进程ID, 指定等待哪个进程: 
+ *            - >0: 等待特定 PID 的进程
+ *            - -1: 等待任意进程
+ *            - 0: 等待与调用进程同进程组的任意进程
+ *            - <-1: 等待进程组 ID 等于 pid 绝对值的任意进程
  * 
- * @param status 输出参数, 存储子进程状态信息。可使用以下宏检查: 
- *               - WIFEXITED(status): 子进程正常退出
- *               - WEXITSTATUS(status): 获取退出状态码（仅当WIFEXITED为真）
- *               - WIFSIGNALED(status): 子进程因信号终止
- *               - WTERMSIG(status): 获取终止信号的编号（仅当WIFSIGNALED为真）
- *               - WIFSTOPPED(status): 子进程因信号暂停
- *               - WSTOPSIG(status): 获取暂停信号的编号（仅当WIFSTOPPED为真）
- *               - WIFCONTINUED(status): 子进程已从暂停状态恢复
+ * @param status 输出参数, 存储进程状态信息。可使用以下宏检查: 
+ *               - WIFEXITED(status): 正常退出
+ *               - WEXITSTATUS(status): 获取退出状态码(仅当 WIFEXITED 为真)
+ *               - WIFSIGNALED(status): 因信号终止
+ *               - WTERMSIG(status): 获取终止信号的编号(仅当 WIFSIGNALED 为真)
+ *               - WIFSTOPPED(status): 因信号暂停
+ *               - WSTOPSIG(status): 获取暂停信号的编号(仅当 WIFSTOPPED 为真)
+ *               - WIFCONTINUED(status): 已从暂停状态恢复
  * 
  * @param __options 等待选项: 
- *                  - 0: 阻塞模式, 直到目标子进程状态变化(退出/暂停)
+ *                  - 0: 阻塞模式, 直到目标进程状态变化(退出/暂停)
  *                  - WNOHANG(0x00000001): 非阻塞模式, 无状态变化时立即返回0
- *                  - WUNTRACED(0x00000002): 监听子进程暂停事件(如收到SIGSTOP), 即使未跟踪该进程
- *                  - WEXITED(0x00000004): 监听已终止的子进程
- *                  - WCONTINUED(0x00000008): 监听子进程恢复运行事件(收到SIGCONT)
- *                  - WNOWAIT(0x01000000): 保持子进程在等待状态, 可再次waitpid
- *                  - __WNOTHREAD(0x20000000): 不等待兄弟线程的子进程
- *                  - __WALL(0x40000000): 监听所有类型的子进程状态变化
- *                  - __WCLONE(0x80000000): 仅等待clone创建的子进程
+ *                  - WUNTRACED(0x00000002): 监听进程暂停事件(如收到 SIGSTOP), 即使未跟踪该进程
+ *                  - WEXITED(0x00000004): 监听已终止的进程
+ *                  - WCONTINUED(0x00000008): 监听进程恢复运行事件(收到 SIGCONT)
+ *                  - WNOWAIT(0x01000000): 保持进程在等待状态, 可再次 waitpid
+ *                  - __WNOTHREAD(0x20000000): 不等待兄弟线程的进程
+ *                  - __WALL(0x40000000): 监听所有类型的进程状态变化
+ *                  - __WCLONE(0x80000000): 仅等待 clone 创建的进程
  * 
  * @return pid_t 返回值含义: 
- *              - >0: 状态已变化的子进程PID
- *              -  0: 非阻塞模式下, 子进程仍在运行且状态未变化
+ *              - >0: 状态已变化的进程PID
+ *              -  0: 非阻塞模式下, 进程仍在运行且状态未变化
  *              - -1: 调用失败, 检查errno: 
- *                    - ECHILD: 指定的 pid 子进程不存在
+ *                    - ECHILD: 指定的 pid 进程不存在
  *                    - EINVAL: 无效的 options 参数
  *                    - EINTR:  被信号中断
  */

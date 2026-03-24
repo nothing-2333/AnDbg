@@ -272,8 +272,11 @@ private:
 // 回去进程所有 pid
 std::vector<pid_t> get_thread_ids(pid_t pid);
 
-// 查找 app 进程的 pid
-std::vector<pid_t> find_app_process(const std::string& package_name);
+// 通过包名查找 pid
+std::vector<pid_t> find_pid_by_package_name(const std::string& package_name);
+
+// 通过 pid 查找包名
+std::optional<std::string> find_package_name_by_pid(pid_t pid);
 
 // 枚举转换
 const char process_state_to_char(ProcessState state);
@@ -308,7 +311,10 @@ public:
   std::vector<PSItem> get_items();
 
   // 通过进程名查找 pid
-  std::vector<pid_t> find_pid_by_name(std::string name, MatchMode mode, bool is_sensitivity);
+  std::vector<pid_t> find_pid_by_process_name(std::string name, MatchMode mode, bool is_sensitivity);
+
+  // 通过 pid 查找进程名
+  std::optional<std::string> find_process_name_by_pid(pid_t pid);
 
 private:
   // 解析单一行

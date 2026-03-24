@@ -45,11 +45,11 @@ pid_t waitpid_wrapper(pid_t pid, int* status, int __options)
   // 按返回值分类打印日志, 更易排查问题
   if (wpid == -1) 
   {
-    LOG_ERROR("waitpid 调用失败, 目标PID: {}, 错误: {}", pid, std::string(strerror(errno)));
+    LOG_ERROR("waitpid 调用失败, 目标 PID: {}, 错误: {}", pid, std::string(strerror(errno)));
   }
   else if (wpid == 0)
   {
-    LOG_DEBUG("waitpid 非阻塞返回: 目标PID {} 仍在运行", pid);
+    LOG_DEBUG("waitpid 非阻塞返回: 目标 PID: {} 仍在运行", pid);
   }
   else
   {
@@ -70,7 +70,7 @@ pid_t waitpid_wrapper(pid_t pid, int* status, int __options)
         status_desc = fmt::format("进程暂停, 信号: {}", WSTOPSIG(*status));
       }
     }
-    LOG_DEBUG("waitpid 完成, 目标PID: {}, 返回PID: {}, 状态: {}", pid, wpid, status_desc);
+    LOG_DEBUG("waitpid 完成, 目标 PID: {}, 返回 PID: {}, 状态: {}", pid, wpid, status_desc);
   }
 
   return wpid;
