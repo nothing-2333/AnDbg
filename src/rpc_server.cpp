@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <unistd.h>
 #include <utility>
 #include <vector>
 
 #include "log.hpp"
 #include "rpc_server.hpp"
+#include "status.hpp"
 #include "utils.hpp"
 
 
@@ -38,18 +40,12 @@ namespace Base
 RPCServer::RPCServer()
 {
   // 注册一些默认处理函数
-  register_handler("ping", [](std::vector<char>& params) -> std::vector<char> 
+  register_handler("ping", [](const std::string& params) -> Status
   {
     if (params.empty()) 
-    {
-      std::vector<char> response = {'p', 'o', 'n', 'g'};
-      return response;
-    }
+      return Status::success("pong");
     else 
-    {
-      std::vector<char> response(params.begin(), params.end());
-      return response;
-    }
+      return Status::success(params);
   });
 }
 
@@ -60,37 +56,30 @@ RPCServer::~RPCServer()
 
 bool RPCServer::is_running()
 {
-  std::lock_guard<std::mutex> lock(mutex_);
   return running_;
 }
 
 bool RPCServer::is_connected()
 {
-  std::lock_guard<std::mutex> lock(mutex_);
   return connected_;
 }
 
 int RPCServer::get_port()
 {
-  std::lock_guard<std::mutex> lock(mutex_);
   return port_;
 }
 
 void RPCServer::register_handler(const std::string& command, Handler handler)
 {
-  std::lock_guard<std::mutex> lock(mutex_);
   handlers_[command] = handler;
 }
 
 bool RPCServer::start(uint16_t port)
 {
+  if (running_)
   {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (running_)
-    {
-      LOG_DEBUG("rpc 服务已经启动");
-      return true;
-    }
+    LOG_DEBUG("rpc 服务已经启动");
+    return true;
   }
 
   // 创建 socket
@@ -140,20 +129,17 @@ bool RPCServer::start(uint16_t port)
 
 void RPCServer::stop()
 {
+  if (!running_)
+    return;
+
+  // 关闭服务器 socket, 以打断 accept 调用
+  safe_close_fd(server_fd_);
+  running_ = false;
+
+  if (connected_)
   {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!running_)
-      return;
-
-    // 关闭服务器 socket, 以打断 accept 调用
-    safe_close_fd(server_fd_);
-    running_ = false;
-
-    if (connected_)
-    {
-      safe_close_fd(current_client_fd_);
-      connected_ = false;
-    }
+    safe_close_fd(current_client_fd_);
+    connected_ = false;
   }
 
   // 等待服务器线程退出
@@ -178,11 +164,8 @@ void RPCServer::server_loop()
 
   while (true)
   {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (!running_)
-        break;
-    }
+    if (!running_)
+      break;
 
     // 接受客户端连接
     sockaddr_in client_addr{};
@@ -200,18 +183,15 @@ void RPCServer::server_loop()
     }
 
     // 如果有现有连接, 先关闭
+    if (connected_)
     {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (connected_)
-      {
-        safe_close_fd(current_client_fd_);
-        LOG_DEBUG("新链接顶替现有连接");
-      }
-
-      // 记录当前客户端连接
-      current_client_fd_ = client_fd;
-      connected_ = true;
+      safe_close_fd(current_client_fd_);
+      LOG_DEBUG("新链接顶替现有连接");
     }
+
+    // 记录当前客户端连接
+    current_client_fd_ = client_fd;
+    connected_ = true;
 
 
     char client_ip[INET_ADDRSTRLEN];
@@ -222,11 +202,8 @@ void RPCServer::server_loop()
     handle_client(client_fd);
 
     // 关闭客户端连接
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      safe_close_fd(current_client_fd_);
-      connected_ = false;
-    }
+    safe_close_fd(current_client_fd_);
+    connected_ = false;
     LOG_DEBUG("客户端已断开连接");
   }
 
@@ -237,11 +214,8 @@ void RPCServer::handle_client(int client_fd)
 {
   while (true)
   {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (!running_)
-        break;
-    }
+    if (!running_)
+      break;
 
     // 读取消息
     std::vector<char> data = read_message(client_fd);
@@ -256,31 +230,24 @@ void RPCServer::handle_client(int client_fd)
     LOG_DEBUG("收到命令: {}", message.command);
 
     // 查找处理函数
-    Handler handler = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      auto it = handlers_.find(message.command);
-      if (it != handlers_.end())
-      {
-        handler = it->second;
-      }
-    }
-
     Message response;
-    if (handler)
+    auto it = handlers_.find(message.command) ;
+    if (it != handlers_.end())
     {
+      Handler handler = it->second;
       try 
       {
         // 调用处理函数
-        response.content = handler(message.content);
-        if (Utils::vec_to_str(std::move(response.content)) == "success")
+        Status status = handler(message.content);
+        if (status.is_success())
         {
           response.command = "success";
-          response.content = {};
+          response.content = status.to_string();
         }
         else  
         {
           response.command = "fail";
+          response.content = status.to_string();
         }
         
         LOG_DEBUG("命令 {} 处理完成", message.command);
@@ -289,8 +256,7 @@ void RPCServer::handle_client(int client_fd)
       {
         LOG_ERROR("处理命令 {} 时发生异常: {}", message.command, e.what());
         response.command = "error";
-        const char* err_msg = "处理命令时发生异常";
-        response.content = std::vector<char>(err_msg, err_msg + strlen(err_msg));
+        response.content = "处理命令时发生异常: " + std::string(e.what());
       }
     }
     else  
@@ -298,7 +264,7 @@ void RPCServer::handle_client(int client_fd)
       LOG_ERROR("未知命令: {}", message.command);
       response.command = "error";
       const char* err_msg = "未知命令";
-      response.content = std::vector<char>(err_msg, err_msg + strlen(err_msg)); 
+      response.content = "未知命令: " + message.command;
     }
 
     // 序列化响应消息
@@ -377,7 +343,7 @@ Message RPCServer::deserialize_message(const std::vector<char>& data)
   }
 
   message.command = std::string(data.begin(), pos);
-  message.content = std::vector<char>(pos + 1, data.end());
+  message.content = std::string(pos + 1, data.end());
 
   return message;
 }

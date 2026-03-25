@@ -27,7 +27,7 @@ DebuggerCore::DebuggerCore() : register_crl(RegisterControl::get_instance())
 
 DebuggerCore::~DebuggerCore()
 {
-  
+
 }
 
 Status DebuggerCore::get_threads(std::vector<pid_t>& threads)
@@ -560,6 +560,37 @@ Status DebuggerCore::read_registers(nlohmann::json json_data, nlohmann::json& re
 
   return Status::success("read_registers 成功");
 }
+
+Status resume()
+{
+
+}
+
+Status resume_thread(pid_t tid = -1)
+{
+
+}
+
+Status step_into(pid_t tid = -1)
+{
+
+}
+
+Status step_over(pid_t tid = -1)
+{
+
+}
+
+Status step_out(pid_t tid = -1)
+{
+
+}
+
+Status pause()
+{
+
+}
+
 
 }
 

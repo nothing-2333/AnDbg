@@ -8,62 +8,24 @@
 
 void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
 {
-  server.register_handler("attach", [&debugger](std::vector<char>& params) -> std::vector<char> 
+  server.register_handler("attach", [&debugger](const std::string& params) -> Base::Status
   {
-    Base::Status status = debugger.attach(Utils::vec_to_str(params));
-
-    if (status.is_success()) 
-    {
-      return Utils::str_to_vec("成功");
-    }
-    else 
-    {
-      return Utils::str_to_vec(status.to_string());
-    }
+    return debugger.attach(params);
   });
 
-  server.register_handler("launch", [&debugger](std::vector<char>& params) -> std::vector<char> 
+  server.register_handler("launch", [&debugger](const std::string& params) -> Base::Status
   {
-    Base::Status status = debugger.launch(Utils::vec_to_str(params));
-
-    if (status.is_success()) 
-    {
-      return Utils::str_to_vec("成功");
-    }
-    else 
-    {
-      return Utils::str_to_vec(status.to_string());
-    }
+    return debugger.launch(params);
   });
 
-  server.register_handler("detach", [&debugger](std::vector<char>& params) -> std::vector<char> 
+  server.register_handler("detach", [&debugger](const std::string& params) -> Base::Status
   {
-
-    Base::Status status = debugger.detach();
-
-    if (status.is_success()) 
-    {
-      return Utils::str_to_vec("成功");
-    }
-    else 
-    {
-      return Utils::str_to_vec(status.to_string());
-    }
+    return debugger.detach();
   });
 
-  server.register_handler("kill", [&debugger](std::vector<char>& params) -> std::vector<char> 
+  server.register_handler("kill", [&debugger](const std::string& params) -> Base::Status
   {
-
-    Base::Status status = debugger.kill();
-
-    if (status.is_success()) 
-    {
-      return Utils::str_to_vec("成功");
-    }
-    else 
-    {
-      return Utils::str_to_vec(status.to_string());
-    }
+    return debugger.kill();
   });
 }
 

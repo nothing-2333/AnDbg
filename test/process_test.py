@@ -86,14 +86,14 @@ def main():
         # response = client.send_command("attach", "com.example.andbgtest")
         # print(f"服务器响应: {response}")
         
-        response = client.send_command("launch", "com.example.andbgtest/com.example.andbgtest.MainActivity")
-        print(f"服务器响应: {response}")
+        # response = client.send_command("launch", "com.example.andbgtest/com.example.andbgtest.MainActivity")
+        # print(f"服务器响应: {response}")
 
         # response = client.send_command("detach")
         # print(f"服务器响应: {response}")
         
-        # response = client.send_command("kill")
-        # print(f"服务器响应: {response}")
+        response = client.send_command("kill")
+        print(f"服务器响应: {response}")
         
     finally:
         client.disconnect()

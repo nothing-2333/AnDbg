@@ -1,5 +1,6 @@
 #pragma once
 
+#include "status.hpp"
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -14,10 +15,10 @@ namespace Base
 struct Message
 {
   std::string command;
-  std::vector<char> content;
+  std::string content;
 };
 
-using Handler = std::function<std::vector<char>(std::vector<char>& content)>;
+using Handler = std::function<Status(const std::string& content)>;
 
 class RPCServer
 {
@@ -26,7 +27,6 @@ private:
   bool connected_{false};
 
   std::thread server_thread_;
-  std::mutex mutex_;
 
   int server_fd_{-1};
   int current_client_fd_{-1};

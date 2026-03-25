@@ -367,7 +367,7 @@ std::optional<uint64_t> RegisterControl::get_gpr_offset(GPRegister reg)
       return offsetof( user_pt_regs, pstate);
       break;
     default:
-      LOG_ERROR("不支持的寄存器: %s", gpr2str(reg));
+      LOG_ERROR("不支持的寄存器: {}", gpr2str(reg));
       return std::nullopt;
   }
 
@@ -388,7 +388,7 @@ std::optional<uint64_t> RegisterControl::get_fpr_offset(FPRegister reg)
     case FPRegister::FPCR:
       return offsetof(user_fpsimd_state, fpcr);
     default:
-      LOG_ERROR("不支持的寄存器: %d", fpr2str(reg));
+      LOG_ERROR("不支持的寄存器: {}", fpr2str(reg));
       return std::nullopt;
   }
 }

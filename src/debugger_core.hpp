@@ -24,12 +24,13 @@ public:
   Base::Status detach();
   Base::Status kill();
 
-  // // 执行控制
-  // Status resume();
-  // Status step_into(pid_t tid = -1);
-  // Status step_over(pid_t tid = -1);
-  // Status step_out(pid_t tid = -1);
-  // Status pause();
+  // 执行控制
+  Base::Status resume();
+  Base::Status resume_thread(pid_t tid = -1);
+  Base::Status step_into(pid_t tid = -1);
+  Base::Status step_over(pid_t tid = -1);
+  Base::Status step_out(pid_t tid = -1);
+  Base::Status pause();
 
   // // 内存操作
   // Status read_memory(uint64_t address, size_t size, void *buf, size_t &bytes_read);
