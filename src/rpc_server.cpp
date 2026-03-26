@@ -242,12 +242,12 @@ void RPCServer::handle_client(int client_fd)
         if (status.is_success())
         {
           response.command = "success";
-          response.content = status.to_string();
+          response.content = status.c_str();
         }
         else  
         {
           response.command = "fail";
-          response.content = status.to_string();
+          response.content = status.c_str();
         }
         
         LOG_DEBUG("命令 {} 处理完成", message.command);

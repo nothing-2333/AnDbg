@@ -42,7 +42,7 @@ public:
   }
 
   bool is_success() { return m_type == StatusType::SUCCESS; };
-  bool is_fail() { return m_type != StatusType::FAIL; };
+  bool is_fail() { return m_type == StatusType::FAIL; };
 
 private:
   StatusType m_type;

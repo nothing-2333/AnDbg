@@ -298,14 +298,14 @@ Status DebuggerCore::launch(const std::string& package_activity)
   if (attach_status.is_success())
     return Status::success("启动并附加到 app 成功, PID: {}", app_pid);
   else  
-    return Status::fail("附加到 app 进程失败: {}", attach_status.to_string());
+    return Status::fail("附加到 app 进程失败: {}", attach_status.c_str());
 }
 
 Status DebuggerCore::detach()
 {
   if (m_pid < 0) Status::fail("m_pid 无效");
 
-  bool all_success = true;
+  bool all_ok = true;
   int success_count = 0;
 
   ::kill(m_pid, SIGCONT);
@@ -317,14 +317,14 @@ Status DebuggerCore::detach()
     else
     {
       LOG_WARNING("分离线程 " + std::to_string(tid) + " 失败");
-      all_success = false;
+      all_ok = false;
     }
   }
 
-  if (!all_success)
+  if (!all_ok)
     LOG_WARNING("部分线程分离失败, 成功: " + std::to_string(success_count) + "/" + std::to_string(m_tids.size()));
 
-  return all_success ? Status("detach 成功", StatusType::SUCCESS) : Status("detach 失败", StatusType::FAIL);
+  return all_ok ? Status("detach 成功", StatusType::SUCCESS) : Status("detach 失败", StatusType::FAIL);
 
 }
 
@@ -561,32 +561,163 @@ Status DebuggerCore::read_registers(nlohmann::json json_data, nlohmann::json& re
   return Status::success("read_registers 成功");
 }
 
-Status resume()
+Status DebuggerCore::resume_thread(pid_t tid)
+{
+  // 检查线程是否存在
+  if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
+    return Status::fail("resume_thread: 线程 {} 不存在", tid);
+
+  int signo = 0;
+  if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr,
+  reinterpret_cast<void*>(signo), sizeof(signo)))
+    return Status::fail("resume_thread: PTRACE_CONT 失败 tid={}", tid);
+
+  LOG_DEBUG("恢复线程成功: tid={}", tid);
+  return Status::success("resume_thread 成功");
+}
+
+Status DebuggerCore::resume()
+{
+  if (m_pid <= 0 || m_tids.empty())
+    return Status::fail("resume: 未附加任何进程");
+
+  bool all_ok = true;
+  std::vector<pid_t> failed_tids;
+
+  for (const pid_t tid : m_tids)
+  {
+    Status s = resume_thread(tid);
+    if (s.is_fail())
+    {
+      all_ok = false;
+      failed_tids.push_back(tid);
+      LOG_ERROR("恢复线程失败 tid={}: {}", tid, s.c_str());
+    }
+  }
+  if (!all_ok) 
+    return Status::fail("resume: 部分线程恢复失败, 失败数量: {}", (int)failed_tids.size());
+    
+  LOG_DEBUG("恢复所有线程成功, pid={}", m_pid);
+  return Status::success("resume 所有线程成功");
+}
+
+Status DebuggerCore::step_into(pid_t tid)
+{
+  if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
+    return Status::fail("step_into: 线程 {} 不存在", tid);
+
+  // 优先使用硬件单步
+  Status hw_status = hardware_step_into(tid);
+  if (hw_status.is_success())
+  {
+    LOG_DEBUG("硬件单步执行成功 tid={}", tid);
+    return hw_status;
+  }
+
+  // 硬件不支持 → 降级为软件单步
+  LOG_WARNING("硬件单步不支持, 使用软件单步 tid={}", tid);
+  Status sw_status = software_step_into(tid);
+  if (sw_status.is_success())
+  {
+    LOG_DEBUG("软件单步执行成功 tid={}", tid);
+    return sw_status;
+  }
+
+  return Status::fail("单步执行失败: {}", sw_status.c_str());
+}
+
+Base::Status DebuggerCore::hardware_step_into(pid_t tid, intptr_t signo)
+{
+  // 检查线程是否存在
+  if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
+    return Status::fail("hardware_step_into: 线程 {} 不存在", tid);
+
+  if (!Utils::ptrace_wrapper(PTRACE_SINGLESTEP, tid, nullptr,
+  reinterpret_cast<void*>((signo)), sizeof(intptr_t)))
+  {
+    return Status::fail("hardware_step_into: PTRACE_SINGLESTEP 失败 tid={} errno={}", tid, errno);
+  }
+
+  // 等待线程停止
+  int status = 0;
+  pid_t wpid = Utils::waitpid_wrapper(tid, &status, __WALL);
+  if (wpid != tid && !WIFSTOPPED(status))
+  {
+    return Status::fail("hardware_step_into: waitpid 失败 tid={}", tid);
+  }
+
+  return Status::success("hardware_step_into 成功 tid={}", tid);
+}
+
+Base::Status DebuggerCore::software_step_into(pid_t tid)
+{
+  
+}
+
+Status DebuggerCore::step_over(pid_t tid)
 {
 
 }
 
-Status resume_thread(pid_t tid = -1)
+Status DebuggerCore::step_out(pid_t tid)
 {
 
 }
 
-Status step_into(pid_t tid = -1)
+Status DebuggerCore::pause()
+{
+  if (m_pid <= 0) 
+    return Status::fail("pause: 未附加进程");
+
+  if (::kill(m_pid, SIGSTOP) == -1) 
+    return Status::fail("pause: 发送 SIGSTOP 失败");
+
+  return Status::success("pause 成功");
+}
+
+Status DebuggerCore::disassemble(uint64_t address, size_t count, Assembly::Instruction& result)
 {
 
 }
 
-Status step_over(pid_t tid = -1)
+
+Status DebuggerCore::generate_cfg()
 {
 
 }
 
-Status step_out(pid_t tid = -1)
+
+Status DebuggerCore::read_memory(uint64_t address, size_t size, void *buf, size_t &bytes_read)
 {
 
 }
 
-Status pause()
+Status DebuggerCore::write_memory(uint64_t address, size_t size, const void *buf, size_t &bytes_written)
+{
+
+}
+
+Status DebuggerCore::read_memory_tags(int32_t type, uint64_t address, size_t len, std::vector<uint8_t> &tags)
+{
+
+}
+
+Status DebuggerCore::write_memory_tags(int32_t type, uint64_t address, size_t len, const std::vector<uint8_t> &tags)
+{
+
+}
+
+Status DebuggerCore::allocate_memory(size_t size, uint32_t permissions)
+{
+
+}
+
+Status DebuggerCore::deallocate_memory(size_t size)
+{
+
+}
+
+Status DebuggerCore::get_memory_map(std::vector<MemoryRegion>& result)
 {
 
 }
