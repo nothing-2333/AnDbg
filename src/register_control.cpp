@@ -114,9 +114,7 @@ bool RegisterControl::ptrace_get_regset(pid_t tid, void* data, size_t size, Regi
   struct iovec iov;
   iov.iov_base = data;
   iov.iov_len = size;
-
-  return Utils::ptrace_wrapper(PTRACE_GETREGSET, tid, 
-    reinterpret_cast<void*>(static_cast<unsigned int>(type)), &iov, size);
+  return Utils::ptrace_wrapper(PTRACE_GETREGSET, tid, &type, &iov, size);
 }
 
 bool RegisterControl::ptrace_set_regset(pid_t tid, const void* data, size_t size, RegisterType type)
@@ -125,8 +123,7 @@ bool RegisterControl::ptrace_set_regset(pid_t tid, const void* data, size_t size
   iov.iov_base = const_cast<void*>(data);
   iov.iov_len = size;
 
-  return Utils::ptrace_wrapper(PTRACE_SETREGSET, tid, 
-    reinterpret_cast<void*>(static_cast<unsigned int>(type)), &iov, size);
+  return Utils::ptrace_wrapper(PTRACE_SETREGSET, tid, &type, &iov, size);
 }
 
 std::optional<user_pt_regs> RegisterControl::get_all_gpr(pid_t tid)
@@ -177,6 +174,8 @@ bool RegisterControl::set_all_dbg(pid_t tid, const user_hwdebug_state& dbg)
 
 std::optional<uint64_t> RegisterControl::get_gpr(pid_t tid, GPRegister reg)
 {
+  // todo: 优化用获取单个寄存器的 ptrace 命令
+
   auto gpr_opt = get_all_gpr(tid);
   if (!gpr_opt) return std::nullopt;
   const auto& gpr = gpr_opt.value();

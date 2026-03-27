@@ -482,6 +482,8 @@ Status DebuggerCore::read_registers(nlohmann::json json_data, nlohmann::json& re
     result["GPR"] = gpr_result;
   }
 
+  LOG_DEBUG("2");
+
   if (json_data.contains("FPR") && !json_data["FPR"].is_null())
   {
     const nlohmann::json& fpr_req = json_data["FPR"];

@@ -16,10 +16,10 @@ bool ptrace_wrapper(int request, pid_t pid, void* address, void* data, size_t da
   errno = 0;
   if (request == PTRACE_GETREGSET || request == PTRACE_SETREGSET)
   {
-    ret = ptrace(request, static_cast<::pid_t>(pid), *reinterpret_cast<unsigned int*>(address), data);
+    ret = ptrace(request, pid, *reinterpret_cast<unsigned int*>(address), data);
   }
   else  
-    ret = ptrace(request, static_cast<::pid_t>(pid), address, data);
+    ret = ptrace(request, pid, address, data);
 
   // 记录日志
   LOG_DEBUG("ptrace(request: {}, pid: {}, address: {:p}, data: {:p}, data_size: {}, ret: 0x{:x})",
