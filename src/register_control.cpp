@@ -10,6 +10,9 @@
 #include "register_control.hpp"
 
 
+// todo: 优化用获取单个寄存器的 ptrace 命令, 用 ptrace 的 PTRACE_POKEUSER, PTRACE_PEEKUSER
+// 修改 set_gpr, get_gpr 等, get_fpr_offset 已经写好
+
 namespace Core 
 {
 
@@ -174,8 +177,6 @@ bool RegisterControl::set_all_dbg(pid_t tid, const user_hwdebug_state& dbg)
 
 std::optional<uint64_t> RegisterControl::get_gpr(pid_t tid, GPRegister reg)
 {
-  // todo: 优化用获取单个寄存器的 ptrace 命令
-
   auto gpr_opt = get_all_gpr(tid);
   if (!gpr_opt) return std::nullopt;
   const auto& gpr = gpr_opt.value();
@@ -188,13 +189,13 @@ std::optional<uint64_t> RegisterControl::get_gpr(pid_t tid, GPRegister reg)
 
 bool RegisterControl::set_gpr(pid_t tid, GPRegister reg, uint64_t value)
 {
-  auto offset = get_gpr_offset(reg);
-  if (!offset) return false;
+  // auto offset = get_gpr_offset(reg);
+  // if (!offset) return false;
 
-  return Utils::ptrace_wrapper(PTRACE_POKEUSER, tid, reinterpret_cast<void*>(offset.value()), 
-    reinterpret_cast<void*>(value), sizeof(uint64_t));
+  // return Utils::ptrace_wrapper(PTRACE_POKEUSER, tid, reinterpret_cast<void*>(offset.value()), 
+  //   reinterpret_cast<void*>(value), sizeof(uint64_t));
 
-  /* 上边的优化不生效可回退此方案
+  // 上边的优化不生效可回退此方案
   auto gpr_opt = get_all_gpr(tid);
   if (!gpr_opt) return false;
   auto& gpr = gpr_opt.value();
@@ -205,7 +206,7 @@ bool RegisterControl::set_gpr(pid_t tid, GPRegister reg, uint64_t value)
   uint64_t* ptr_val = ptr_opt.value();
   *ptr_val = value;
   return set_all_gpr(tid, gpr);
-  */
+  
 }
 
 std::optional<RegisterControl::FPRValue> RegisterControl::get_fpr(pid_t tid, FPRegister reg)
@@ -234,7 +235,6 @@ std::optional<RegisterControl::FPRValue> RegisterControl::get_fpr(pid_t tid, FPR
 
 bool RegisterControl::set_fpr(pid_t tid, FPRegister reg, const RegisterControl::FPRValue& value)
 {
-  // todo: 用 ptrace 的 PTRACE_POKEUSER, 类似 set_gpr, get_fpr_offset 已经写好
   auto fpr_opt = get_all_fpr(tid);
   if (!fpr_opt) return false;
   auto& fpr = fpr_opt.value(); 

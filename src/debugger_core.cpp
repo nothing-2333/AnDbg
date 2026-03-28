@@ -125,6 +125,7 @@ Status DebuggerCore::attach(pid_t pid)
     
 
   m_pid = pid;
+  m_current_tid = pid;
   m_tids = attached_tids;
 
   return Status::success("attach 成功");

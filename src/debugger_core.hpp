@@ -14,6 +14,8 @@ namespace Core
 // 封装一些实现, 要求输入或输出类型必须容易转换
 
 // todo: 为所有接口加上检查
+
+// todo: 只有当前线程处于暂停状态才能执行一些接口, 需要做出检查
 class DebuggerCore
 {
 public:

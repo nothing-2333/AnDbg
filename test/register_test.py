@@ -84,6 +84,10 @@ def main():
         return
     
     try:
+        # response = client.send_command("attach", "com.example.andbgtest")
+        # print(f"服务器响应: {response}")
+        
+        
         r1 = {
             "GPR": ["x1", "x2"],
             "FPR": ["v1", "fpsr"]
