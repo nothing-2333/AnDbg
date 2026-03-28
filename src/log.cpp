@@ -3,6 +3,9 @@
 
 #include "log.hpp"
 
+namespace Base
+{
+
 void Log::add(LogLevel level, std::string content)
 {
   std::cout << to_string(level, content) << std::endl;
@@ -39,4 +42,6 @@ std::string Log::to_string()
     oss << to_string(level, content) << "\n";
   }
   return oss.str();
+}
+
 }

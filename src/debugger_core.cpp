@@ -629,7 +629,7 @@ Status DebuggerCore::step_into(pid_t tid)
   return Status::fail("单步执行失败: {}", sw_status.c_str());
 }
 
-Base::Status DebuggerCore::hardware_step_into(pid_t tid, intptr_t signo)
+Status DebuggerCore::hardware_step_into(pid_t tid, intptr_t signo)
 {
   // 检查线程是否存在
   if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
@@ -652,7 +652,7 @@ Base::Status DebuggerCore::hardware_step_into(pid_t tid, intptr_t signo)
   return Status::success("hardware_step_into 成功 tid={}", tid);
 }
 
-Base::Status DebuggerCore::software_step_into(pid_t tid)
+Status DebuggerCore::software_step_into(pid_t tid)
 {
   
 }

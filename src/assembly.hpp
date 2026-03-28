@@ -13,7 +13,8 @@
 namespace Assembly 
 {
 
-struct Operand {
+struct Operand 
+{
   enum class type 
   {
     REG,  // 寄存器: x0, sp, pc

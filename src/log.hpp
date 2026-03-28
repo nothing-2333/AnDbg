@@ -9,6 +9,8 @@
 #include "fmt/format.h"
 #include "singleton_base.hpp"
 
+namespace Base
+{
 
 enum class LogLevel
 {
@@ -70,9 +72,11 @@ static std::string format_log(const char* file, int line, const fmt::format_stri
   }
 }
 
-#define LOG(level, ...) \
-  Log::get_instance().add(level, format_log(__FILE__, __LINE__, __VA_ARGS__))
+}
 
-#define LOG_DEBUG(...) LOG(LogLevel::DEBUG, __VA_ARGS__)
-#define LOG_WARNING(...) LOG(LogLevel::WARNING, __VA_ARGS__)
-#define LOG_ERROR(...) LOG(LogLevel::ERROR, __VA_ARGS__)
+#define LOG(level, ...) \
+  Base::Log::get_instance().add(level, Base::format_log(__FILE__, __LINE__, __VA_ARGS__))
+
+#define LOG_DEBUG(...) LOG(Base::LogLevel::DEBUG, __VA_ARGS__)
+#define LOG_WARNING(...) LOG(Base::LogLevel::WARNING, __VA_ARGS__)
+#define LOG_ERROR(...) LOG(Base::LogLevel::ERROR, __VA_ARGS__)
