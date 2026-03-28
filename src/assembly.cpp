@@ -4,14 +4,12 @@
 
 
 #include "capstone/capstone.h"
-#include "memory_control.hpp"
 #include "assembly.hpp"
 #include "log.hpp"
 
 
 namespace Assembly 
 {
-
 
 DisassemblyControl::DisassemblyControl()
 {

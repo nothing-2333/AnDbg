@@ -1,4 +1,5 @@
 #include "debugger_core.hpp"
+#include "assembly.hpp"
 #include "process.hpp"
 #include "register_control.hpp"
 #include "status.hpp"
@@ -6,6 +7,7 @@
 #include "log.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <linux/wait.h>
 #include <optional>
 #include <string>
@@ -19,7 +21,9 @@ using namespace Base;
 namespace Core 
 {
 
-DebuggerCore::DebuggerCore() : register_crl(RegisterControl::get_instance())
+DebuggerCore::DebuggerCore() : register_crl(RegisterControl::get_instance()), 
+disassembly_crl(Assembly::DisassemblyControl::get_instance()),
+memory_crl(MemoryControl::get_instance())
 {
   m_pid = -1;
   m_current_tid = -1;
@@ -213,7 +217,7 @@ Status DebuggerCore::launch(const std::string& package_activity)
     if (wpid < 0)
     {
       Utils::ptrace_wrapper(PTRACE_DETACH, zygote_pid, nullptr, nullptr, 0);
-      return Status::fail("等待进程事件失败: errno={}", errno);
+      return Status::fail("等待进程事件失败,  errno = {}", strerror(errno));
     }
     else if (wpid == 0)
     {
@@ -604,67 +608,92 @@ Status DebuggerCore::resume()
   return Status::success("resume 所有线程成功");
 }
 
-Status DebuggerCore::step_into(pid_t tid)
+Status DebuggerCore::step_into()
 {
-  if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
-    return Status::fail("step_into: 线程 {} 不存在", tid);
-
   // 优先使用硬件单步
-  Status hw_status = hardware_step_into(tid);
+  Status hw_status = hardware_step_into();
   if (hw_status.is_success())
   {
-    LOG_DEBUG("硬件单步执行成功 tid={}", tid);
+    LOG_DEBUG("硬件单步执行成功 tid={}", m_current_tid);
     return hw_status;
   }
 
   // 硬件不支持 → 降级为软件单步
-  LOG_WARNING("硬件单步不支持, 使用软件单步 tid={}", tid);
-  Status sw_status = software_step_into(tid);
+  LOG_WARNING("硬件单步不支持, 使用软件单步 tid={}", m_current_tid);
+  Status sw_status = software_step_into();
   if (sw_status.is_success())
   {
-    LOG_DEBUG("软件单步执行成功 tid={}", tid);
+    LOG_DEBUG("软件单步执行成功 tid={}", m_current_tid);
     return sw_status;
   }
 
   return Status::fail("单步执行失败: {}", sw_status.c_str());
 }
 
-Status DebuggerCore::hardware_step_into(pid_t tid, intptr_t signo)
+Status DebuggerCore::hardware_step_into(intptr_t signo)
 {
-  // 检查线程是否存在
-  if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
-    return Status::fail("hardware_step_into: 线程 {} 不存在", tid);
-
-  if (!Utils::ptrace_wrapper(PTRACE_SINGLESTEP, tid, nullptr,
+  if (!Utils::ptrace_wrapper(PTRACE_SINGLESTEP, m_current_tid, nullptr,
   reinterpret_cast<void*>((signo)), sizeof(intptr_t)))
   {
-    return Status::fail("hardware_step_into: PTRACE_SINGLESTEP 失败 tid={} errno={}", tid, errno);
+    return Status::fail("hardware_step_into: PTRACE_SINGLESTEP 失败 tid = {} errno = {}", m_current_tid, strerror(errno));
   }
 
   // 等待线程停止
   int status = 0;
-  pid_t wpid = Utils::waitpid_wrapper(tid, &status, __WALL);
-  if (wpid != tid && !WIFSTOPPED(status))
+  pid_t wpid = Utils::waitpid_wrapper(m_current_tid, &status, __WALL);
+  if (wpid != m_current_tid && !WIFSTOPPED(status))
   {
-    return Status::fail("hardware_step_into: waitpid 失败 tid={}", tid);
+    return Status::fail("hardware_step_into: waitpid 失败 tid={}", m_current_tid);
   }
 
-  return Status::success("hardware_step_into 成功 tid={}", tid);
+  return Status::success("hardware_step_into 成功 tid={}", m_current_tid);
 }
 
-Status DebuggerCore::software_step_into(pid_t tid)
+Status DebuggerCore::single_step_impl(SingleStepMode mode)
 {
-  
+  // 获取当前 PC
+  uint64_t pc = 0;
+  auto pc_opt = register_crl.get_gpr(m_current_tid, GPRegister::PC);
+  if (!pc_opt) return Status::fail("读取PC失败");
+  pc = pc_opt.value();
+
+  // 下一条指令地址
+  uint64_t next_pc;
+  if (mode == SingleStepMode::STEP_OVER)
+    next_pc = pc + 4;
+  else
+    return Status::fail("暂时不支持软件单步步入");
+
+  uint32_t original_insn = 0;
+  if (!memory_crl.read_memory(m_pid, next_pc, &original_insn, 4))
+    return Status::fail("读取下一条指令失败");
+
+  // todo: 使用断点管理模块完成下断点
+  const uint32_t brk_insn = 0xD4200000; // ARM64 BRK 断点
+  if (!memory_crl.write_memory(m_pid, next_pc, &brk_insn, 4))
+    return Status::fail("写入断点失败");
+
+  // 恢复执行
+  resume_thread(m_current_tid);
+
+  // 等待断点触发
+  int status = 0;
+  Utils::waitpid_wrapper(m_current_tid, &status, __WALL);
+
+  // 写回原指令
+  memory_crl.write_memory(m_pid, next_pc, &original_insn, 4);
+
+  return Status::success("软件单步完成");
 }
 
-Status DebuggerCore::step_over(pid_t tid)
+Status DebuggerCore::software_step_into()
 {
-
+  return single_step_impl(SingleStepMode::STEP_INTO);
 }
 
-Status DebuggerCore::step_out(pid_t tid)
+Status DebuggerCore::step_over()
 {
-
+  return single_step_impl(SingleStepMode::STEP_OVER);
 }
 
 Status DebuggerCore::pause()
@@ -678,34 +707,51 @@ Status DebuggerCore::pause()
   return Status::success("pause 成功");
 }
 
-Status DebuggerCore::disassemble(uint64_t address, size_t count, Assembly::Instruction& result)
+Status DebuggerCore::disassemble(uint64_t address, size_t count, std::vector<Assembly::Instruction>& result)
 {
+  if (address <= 0)
+    return Status::fail("无效的地址");
+  if (count <= 0)
+    return Status::fail("无效的数量");
 
+  std::vector<char> codes(count * 4);
+  if (!memory_crl.read_memory(m_pid, address, codes.data(), codes.size()))
+    return Status::fail("read_memory 失败");
+
+  
+  auto r_opt = disassembly_crl.disassemble(codes);
+  if (!r_opt)
+    return Status::fail("反汇编失败");
+  result = r_opt.value();
+
+  return Status::success("disassemble 成功");
 }
 
-
-Status DebuggerCore::generate_cfg()
+Status DebuggerCore::read_memory(uint64_t address, void* buf, size_t size)
 {
+  if (address <= 0)
+    return Status::fail("无效的地址");
+  if (size <= 0)
+    return Status::fail("无效的大小");
 
+  if (memory_crl.read_memory(m_pid, address, buf, size))
+    return Status::success("read_memory 成功");
+  else return Status::success("read_memory 失败, errno: {}", strerror(errno));
 }
 
-
-Status DebuggerCore::read_memory(uint64_t address, size_t size, void *buf, size_t &bytes_read)
+Status DebuggerCore::write_memory(uint64_t address, const void* buf, size_t size)
 {
+  if (address <= 0)
+    return Status::fail("无效的地址");
+  if (size <= 0)
+    return Status::fail("无效的大小");
 
+  if (memory_crl.write_memory(m_pid, address, buf, size))
+    return Status::success("write_memory 成功");
+  else return Status::success("write_memory 失败, errno: {}", strerror(errno));
 }
 
-Status DebuggerCore::write_memory(uint64_t address, size_t size, const void *buf, size_t &bytes_written)
-{
-
-}
-
-Status DebuggerCore::read_memory_tags(int32_t type, uint64_t address, size_t len, std::vector<uint8_t> &tags)
-{
-
-}
-
-Status DebuggerCore::write_memory_tags(int32_t type, uint64_t address, size_t len, const std::vector<uint8_t> &tags)
+Status DebuggerCore::syscall(std::vector<uint64_t> args)
 {
 
 }
@@ -720,9 +766,16 @@ Status DebuggerCore::deallocate_memory(size_t size)
 
 }
 
-Status DebuggerCore::get_memory_map(std::vector<MemoryRegion>& result)
+Status DebuggerCore::get_memory_regions(std::vector<MemoryRegion>& result)
 {
-
+  auto r = memory_crl.get_memory_regions(m_pid);
+  if (r.empty())
+    return Status::fail("get_memory_regions 失败");
+  else 
+  {
+    result = r; 
+    return Status::success("get_memory_regions 成功");
+  }
 }
 
 

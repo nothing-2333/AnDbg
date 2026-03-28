@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <dirent.h>
 #include <vector>
 
@@ -45,7 +46,7 @@ pid_t waitpid_wrapper(pid_t pid, int* status, int __options)
   // 按返回值分类打印日志, 更易排查问题
   if (wpid == -1) 
   {
-    LOG_ERROR("waitpid 调用失败, 目标 PID: {}, 错误: {}", pid, std::string(strerror(errno)));
+    LOG_ERROR("waitpid 调用失败, 目标 PID: {}, 错误: {}", pid, strerror(errno));
   }
   else if (wpid == 0)
   {
@@ -107,53 +108,6 @@ uint64_t align_page_up(uint64_t value)
 uint64_t align_page_down(uint64_t value)
 {
   return align_down(value, static_cast<uint64_t>(get_page_size()));
-}
-
-// 判断是否是 sigtrap 信号, 在调试时, ptrace 相关操作通常会触发 SIGTRAP 信号
-bool is_sigtrap(int status)
-{
-  return WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP;
-}
-
-// 等待 sigtrap 信号
-bool waitpid_sigtrap(pid_t pid)
-{
-  int status = 0;
-  if (!Utils::waitpid_wrapper(pid, &status, WUNTRACED))
-    return false;
-  return is_sigtrap(status);
-}
-
-// 用 ptrace 执行 syscall 指令
-bool syscall_wrapper(pid_t pid)
-{
-  // 第一次 PTRACE_SYSCALL: 触发进程进入系统调用
-  if (!Utils::ptrace_wrapper(PTRACE_SYSCALL, pid, nullptr, nullptr, 0))
-  {
-    LOG_ERROR("进程 {}: 第一次 PTRACE_SYSCALL 失败", pid);
-    return false;
-  }
-  // 等待进程暂停
-  if (!waitpid_sigtrap(pid))
-  {
-    LOG_ERROR("进程 {}: 等待第一次暂停失败", pid);
-    return false;
-  }
-
-  // 第二次 PTRACE_SYSCALL: 触发进程退出系统调用
-  if (!Utils::ptrace_wrapper(PTRACE_SYSCALL, pid, nullptr, nullptr, 0))
-  {
-    LOG_ERROR("进程 {}: 第二次 PTRACE_SYSCALL 失败", pid);
-    return false;
-  }
-  // 等待进程暂停
-  if (!waitpid_sigtrap(pid))
-  {
-    LOG_ERROR("进程 {}: 等待第二次暂停失败", pid);
-    return false;
-  }
-
-  return true;
 }
 
 bool contains_string(const std::string& src, const std::string& target, bool is_sensitivity)

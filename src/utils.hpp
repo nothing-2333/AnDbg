@@ -76,15 +76,6 @@ uint64_t align_page_up(uint64_t value);
 
 uint64_t align_page_down(uint64_t value);
 
-// 判断是否是 sigtrap 信号, 在调试时, ptrace 相关操作通常会触发 SIGTRAP 信号
-bool is_sigtrap(int status);
-
-// 等待 sigtrap 信号
-bool waitpid_sigtrap(pid_t pid);
-
-// 用 ptrace 执行 syscall 指令
-bool syscall_wrapper(pid_t pid);
-
 // 无符号整数转大端序(入参类型=返回类型)
 template <typename T>  T to_big_endian(T host_val) 
 {

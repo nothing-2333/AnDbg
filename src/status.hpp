@@ -25,7 +25,7 @@ public:
 
   std::string to_string() { return m_string; }
 
-  static Status fail(const std::string& string) { return std::move((Status(string, StatusType::FAIL))); }
+  static Status fail(const std::string& string) { return std::move(Status(string, StatusType::FAIL)); }
   template<typename... Args>
   static Status fail(const fmt::format_string<Args...>& format, Args&&... args) 
   {
@@ -33,12 +33,12 @@ public:
     return std::move((Status(formatted_content, StatusType::FAIL)));
   }
   
-  static Status success(const std::string& string) { return std::move((Status(string, StatusType::SUCCESS))); }
+  static Status success(const std::string& string) { return std::move(Status(string, StatusType::SUCCESS)); }
   template<typename... Args>
   static Status success(const fmt::format_string<Args...>& format, Args&&... args) 
   {
     std::string formatted_content = fmt::format(format, std::forward<Args>(args)...);
-    return std::move((Status(formatted_content, StatusType::SUCCESS)));
+    return std::move(Status(formatted_content, StatusType::SUCCESS));
   }
 
   bool is_success() { return m_type == StatusType::SUCCESS; };

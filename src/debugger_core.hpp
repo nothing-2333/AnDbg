@@ -32,51 +32,32 @@ public:
   // 执行控制
   Base::Status resume_thread(pid_t tid);
   Base::Status resume();
-  Base::Status step_into(pid_t tid);
-  Base::Status hardware_step_into(pid_t tid, intptr_t signo = 0); // 硬件单步 ARM32, RISC-V, 龙芯不支持硬件单单步 
-  Base::Status software_step_into(pid_t tid);     // 软件单步
-  Base::Status step_over(pid_t tid);
-  Base::Status step_out(pid_t tid);
+  Base::Status step_into();
+  Base::Status hardware_step_into(intptr_t signo = 0);  // 硬件单步 ARM32, RISC-V, 龙芯不支持硬件单单步 
+  Base::Status software_step_into();                    // 软件单步
+  Base::Status step_over();
   Base::Status pause();
 
   // 内存操作
-  Base::Status read_memory(uint64_t address, size_t size, void *buf, size_t &bytes_read);
-  Base::Status write_memory(uint64_t address, size_t size, const void *buf, size_t &bytes_written);
-  Base::Status read_memory_tags(int32_t type, uint64_t address, size_t len, std::vector<uint8_t> &tags);
-  Base::Status write_memory_tags(int32_t type, uint64_t address, size_t len, const std::vector<uint8_t> &tags);
+  Base::Status read_memory(uint64_t address, void* buf, size_t size);
+  Base::Status write_memory(uint64_t address, const void* buf, size_t size);
+  Base::Status get_memory_regions(std::vector<MemoryRegion>& result);
   Base::Status allocate_memory(size_t size, uint32_t permissions);
   Base::Status deallocate_memory(size_t size);
-  Base::Status get_memory_map(std::vector<MemoryRegion>& result);
-
+  
   // 寄存器操作
-  /* 接受和返回数据举例
-  {
-    "GPR": {
-      "x0": "0x123456"
-    },
-    "FPR": {
-      "v0": "0x14511"
-    }
-  }
-
-  {
-    "GPR": "all",
-    "FPR": ["v0", "v1", "v3"]
-  }
-  */
   Base::Status write_registers(nlohmann::json json_data);
   Base::Status read_registers(nlohmann::json json_data, nlohmann::json& result);
 
-  // // 断点管理
-  // Status set_breakpoint(uint64_t address, BreakpointCondition condition, int& breakpoint_id);
-  // Status remove_breakpoint(int breakpoint_id);
-  // Status enable_breakpoint(int breakpoint_id);
-  // Status disable_breakpoint(int breakpoint_id);
-  // Status get_breakpoints(std::vector<Breakpoint>& breakpoints);
+  // 断点管理
+  // Base::Status set_breakpoint(uint64_t address, BreakpointCondition condition, int& breakpoint_id);
+  // Base::Status remove_breakpoint(int breakpoint_id);
+  // Base::Status enable_breakpoint(int breakpoint_id);
+  // Base::Status disable_breakpoint(int breakpoint_id);
+  // Base::Status get_breakpoints(std::vector<Breakpoint>& breakpoints);
 
-  // 反汇编
-  Base::Status disassemble(uint64_t address, size_t count, Assembly::Instruction& result);
-  Base::Status generate_cfg();
+  // 反汇编, 更好的做法是在前端做反汇编
+  Base::Status disassemble(uint64_t address, size_t count, std::vector<Assembly::Instruction>& result);
 
   // 线程管理
   Base::Status get_threads(std::vector<pid_t>& threads);
@@ -87,12 +68,23 @@ public:
   Base::Status get_current_tid(pid_t& tid);
 
   // // 符号解析
-  // Status symbol_to_address(const std::string& symbol_name, std::optional<uint64_t>& address);
-  // Status address_to_symbol(uint64_t address, std::optional<std::string>& symbol_name);
+  // Base::Status symbol_to_address(const std::string& symbol_name, std::optional<uint64_t>& address);
+  // Base::Status address_to_symbol(uint64_t address, std::optional<std::string>& symbol_name);
 
 private:
   // 设置默认 ptrace 调试选项
   bool set_default_ptrace_options(pid_t pid);
+
+  // 用 ptrace 执行 syscall 指令
+  Base::Status syscall(std::vector<uint64_t> args);
+
+  // 单步实现
+  enum class SingleStepMode
+  {
+    STEP_INTO,
+    STEP_OVER
+  };
+  Base::Status single_step_impl(SingleStepMode mode);
 
   // 主线程 pid
   pid_t m_pid;
@@ -100,8 +92,10 @@ private:
   std::vector<pid_t> m_tids;
   // 当前 tid
   pid_t m_current_tid;
-  // 寄存器控制
+
   RegisterControl& register_crl;
+  Assembly::DisassemblyControl& disassembly_crl;
+  MemoryControl& memory_crl;
 };
 
 }

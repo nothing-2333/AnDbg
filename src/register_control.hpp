@@ -47,7 +47,8 @@ enum class FPRegister : int
 };
 
 // 调试寄存器索引
-enum class DBRegister : int {
+enum class DBRegister : int 
+{
   DBG0 = 0, DBG1, DBG2, DBG3, DBG4, DBG5, DBG6, DBG7,
   DBG8, DBG9, DBG10, DBG11, DBG12, DBG13, DBG14, DBG15,
   DBG_INFO,         // 调试信息寄存器
