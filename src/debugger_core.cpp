@@ -7,6 +7,7 @@
 #include "log.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <linux/wait.h>
 #include <optional>
@@ -751,19 +752,83 @@ Status DebuggerCore::write_memory(uint64_t address, const void* buf, size_t size
   else return Status::success("write_memory 失败, errno: {}", strerror(errno));
 }
 
-Status DebuggerCore::syscall(std::vector<uint64_t> args)
+Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
 {
+  // 必须处于附加状态
 
+  if (args.size() < 1) 
+    return Status::fail("args.size() 为 0");
+
+  auto gpr_opt = register_crl.get_all_gpr(m_current_tid);
+  if (!gpr_opt) 
+    return Status::fail("get_all_gpr 失败");
+
+  user_pt_regs backup = gpr_opt.value();
+
+  // 写入系统调用号和参数
+  gpr_opt.value().regs[8] = args[0];
+  for (int i = 1; i < args.size() && i < 8; ++i)
+    gpr_opt.value().regs[i - 1] = args[i];
+
+  if (!register_crl.set_all_gpr(m_current_tid, gpr_opt.value()))
+    return Status::fail("set_all_gpr 失败");
+
+  uint64_t pc = backup.pc;
+  uint32_t orig_insn, svc_insn = 0xD4000001;
+  memory_crl.read_memory(m_pid, pc, &orig_insn, 4);
+  memory_crl.write_memory(m_pid, pc, &svc_insn, 4);
+
+  Status s = hardware_step_into();
+  if (s.is_fail()) return s;
+
+  memory_crl.write_memory(m_pid, pc, &orig_insn, 4);
+
+  gpr_opt = register_crl.get_all_gpr(m_current_tid);
+  if (!gpr_opt) 
+    return Status::fail("get_all_gpr 失败");
+
+  ret = gpr_opt.value().regs[0];
+
+  register_crl.set_all_gpr(m_pid, backup);
+
+  return Status::success("syscall 成功");
 }
 
-Status DebuggerCore::allocate_memory(size_t size, uint32_t permissions)
+Status DebuggerCore::allocate_memory(size_t size, int permissions)
 {
+  uint64_t addr;
+  syscall({
+    (uint64_t)SYS_mmap,
+    0,
+    size,
+    (uint64_t)permissions,
+    (uint64_t)(MAP_ANONYMOUS | MAP_PRIVATE),
+    (uint64_t)-1,
+    0
+  }, addr);
 
+  if (addr > 0xFFFFFFFFFFFFF000ULL)
+    return Status::fail("mmap 失败");
+
+  g_allocated_memory[addr] = size;
+  return Status::success("分配内存成功: 0x{:x}", addr);
 }
 
-Status DebuggerCore::deallocate_memory(size_t size)
+Status DebuggerCore::deallocate_memory(uint64_t address)
 {
+  auto it = g_allocated_memory.find(address);
+  if (it == g_allocated_memory.end())
+    return Status::fail("地址未分配");
 
+  size_t size = it->second;
+  uint64_t ret;
+  syscall({(uint64_t)SYS_munmap, address, size}, ret);
+
+  if (ret != 0)
+    return Status::fail("munmap 失败");
+
+  g_allocated_memory.erase(it);
+  return Status::success("释放内存成功");
 }
 
 Status DebuggerCore::get_memory_regions(std::vector<MemoryRegion>& result)

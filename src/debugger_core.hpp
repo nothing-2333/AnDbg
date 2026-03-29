@@ -42,8 +42,8 @@ public:
   Base::Status read_memory(uint64_t address, void* buf, size_t size);
   Base::Status write_memory(uint64_t address, const void* buf, size_t size);
   Base::Status get_memory_regions(std::vector<MemoryRegion>& result);
-  Base::Status allocate_memory(size_t size, uint32_t permissions);
-  Base::Status deallocate_memory(size_t size);
+  Base::Status allocate_memory(size_t size, int permissions);
+  Base::Status deallocate_memory(uint64_t address);
   
   // 寄存器操作
   Base::Status write_registers(nlohmann::json json_data);
@@ -71,12 +71,12 @@ public:
   // Base::Status symbol_to_address(const std::string& symbol_name, std::optional<uint64_t>& address);
   // Base::Status address_to_symbol(uint64_t address, std::optional<std::string>& symbol_name);
 
+  // 用 ptrace 执行 syscall 指令
+  Base::Status syscall(std::vector<uint64_t> args, uint64_t& ret);
+
 private:
   // 设置默认 ptrace 调试选项
   bool set_default_ptrace_options(pid_t pid);
-
-  // 用 ptrace 执行 syscall 指令
-  Base::Status syscall(std::vector<uint64_t> args);
 
   // 单步实现
   enum class SingleStepMode
@@ -92,6 +92,8 @@ private:
   std::vector<pid_t> m_tids;
   // 当前 tid
   pid_t m_current_tid;
+  // 已经申请的内存地址
+  std::unordered_map<uint64_t, size_t> g_allocated_memory;
 
   RegisterControl& register_crl;
   Assembly::DisassemblyControl& disassembly_crl;
