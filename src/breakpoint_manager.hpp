@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <stdexcept>
+#include <sys/types.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -71,22 +72,29 @@ private:
   static constexpr uint64_t DBGBCR_MASK = 0x3ULL << 12;         // 地址匹配模式(默认全匹配)
   static constexpr uint64_t DBGBCR_MATCH_FULL = 0x0ULL << 12;   // 全地址匹配
 
+  // 进程 id
+  pid_t m_pid;
+
   // 所有断点, 占内存
   std::unordered_map<int, Breakpoint> m_breakpoints_;                 
   
-  // 通过 pid 找断点 ID
-  std::unordered_map<pid_t, std::unordered_set<int>> m_tid_breakpoints_;         
+  // 通过 tid 找断点 ID
+  std::unordered_map<pid_t, std::unordered_set<int>> m_tid_breakpoints_map_;         
   
   // 空闲硬件断点寄存器
   std::unordered_set<DBRegister> m_free_hardware_registers_;
 
+  // 已经寄存器数量
+  size_t m_hardware_registers_count_;
+
   // 下一个要分配的断点 ID
-  int m_next_breakpoint_id_ = 1;                                                   
+  int m_next_breakpoint_id_;                                                   
   
 public:
+  BreakpointManager(pid_t pid);
 
   // 获取支持的硬件断点数量, 需要附加子进程后调用, 在这里会初始化 m_free_hardware_registers
-  int get_hardware_register_count(pid_t pid);
+  bool init_hardware_register();
 
   // 设置软件断点 
   int set_software_breakpoint(pid_t tid, uint64_t address, BreakpointCondition condition=nullptr);
@@ -95,7 +103,7 @@ public:
   int set_hardware_breakpoint(pid_t tid, uint64_t address, BreakpointType type, BreakpointCondition condition=nullptr);
 
   // 移除断点对象
-  bool remove_breakpoint(int bid);
+  bool remove_breakpoint(int breakpoint_id);
 
   // 检查断点条件
   bool check_breakpoint_condition(int breakpoint_id);
@@ -109,8 +117,8 @@ public:
   // 获取所有断点
   std::vector<Breakpoint> get_breakpoints();
 
-  // 获取指定进程/线程所有断点
-  std::vector<Breakpoint> get_breakpoints(pid_t pid);
+  // 获取指定 tid 所有断点
+  std::vector<Breakpoint> get_breakpoints(pid_t tid);
   
   // 根据 id 获取断点对象
   std::optional<Breakpoint> get_breakpoint(int breakpoint_id);

@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include "assembly.hpp"
 #include "memory_control.hpp"
+#include "breakpoint_manager.hpp"
 
 namespace Core 
 {
@@ -50,11 +51,11 @@ public:
   Base::Status read_registers(nlohmann::json json_data, nlohmann::json& result);
 
   // 断点管理
-  // Base::Status set_breakpoint(uint64_t address, BreakpointCondition condition, int& breakpoint_id);
-  // Base::Status remove_breakpoint(int breakpoint_id);
-  // Base::Status enable_breakpoint(int breakpoint_id);
-  // Base::Status disable_breakpoint(int breakpoint_id);
-  // Base::Status get_breakpoints(std::vector<Breakpoint>& breakpoints);
+  Base::Status set_breakpoint(uint64_t address, BreakpointCondition condition, int& breakpoint_id);
+  Base::Status remove_breakpoint(int breakpoint_id);
+  Base::Status enable_breakpoint(int breakpoint_id);
+  Base::Status disable_breakpoint(int breakpoint_id);
+  Base::Status get_breakpoints(std::vector<Breakpoint>& breakpoints);
 
   // 反汇编, 更好的做法是在前端做反汇编
   Base::Status disassemble(uint64_t address, size_t count, std::vector<Assembly::Instruction>& result);
