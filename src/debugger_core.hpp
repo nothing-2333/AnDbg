@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <sys/types.h>
 #include <vector>
 #include "register_control.hpp"
 #include "status.hpp"
@@ -15,8 +16,9 @@ namespace Core
 // 封装一些实现, 要求输入或输出类型必须容易转换
 
 // todo: 为所有接口加上检查
-
 // todo: 只有当前线程处于暂停状态才能执行一些接口, 需要做出检查
+// todo: 添加状态的维护
+
 class DebuggerCore
 {
 public:
@@ -51,11 +53,15 @@ public:
   Base::Status read_registers(nlohmann::json json_data, nlohmann::json& result);
 
   // 断点管理
-  Base::Status set_breakpoint(uint64_t address, BreakpointCondition condition, int& breakpoint_id);
+  // 条件断点的功能由前端做, 因为条件无法传递
+  Base::Status set_breakpoint(BreakpointType type, uint64_t address, int& breakpoint_id);
   Base::Status remove_breakpoint(int breakpoint_id);
   Base::Status enable_breakpoint(int breakpoint_id);
   Base::Status disable_breakpoint(int breakpoint_id);
   Base::Status get_breakpoints(std::vector<Breakpoint>& breakpoints);
+  Base::Status get_breakpoints(pid_t tid, std::vector<Breakpoint>& breakpoints);
+  Base::Status get_breakpoint(int breakpoint_id, Breakpoint& breakpoint);  
+  Base::Status get_breakpoint(uint64_t address, Breakpoint& breakpoint);  
 
   // 反汇编, 更好的做法是在前端做反汇编
   Base::Status disassemble(uint64_t address, size_t count, std::vector<Assembly::Instruction>& result);
@@ -99,6 +105,8 @@ private:
   RegisterControl& register_crl;
   Assembly::DisassemblyControl& disassembly_crl;
   MemoryControl& memory_crl;
+
+  BreakpointManager breakpoint_manager;
 };
 
 }

@@ -1,5 +1,6 @@
 #include "debugger_core.hpp"
 #include "assembly.hpp"
+#include "breakpoint_manager.hpp"
 #include "process.hpp"
 #include "register_control.hpp"
 #include "status.hpp"
@@ -24,7 +25,8 @@ namespace Core
 
 DebuggerCore::DebuggerCore() : register_crl(RegisterControl::get_instance()), 
 disassembly_crl(Assembly::DisassemblyControl::get_instance()),
-memory_crl(MemoryControl::get_instance())
+memory_crl(MemoryControl::get_instance()),
+breakpoint_manager(BreakpointManager())
 {
   m_pid = -1;
   m_current_tid = -1;
@@ -569,6 +571,88 @@ Status DebuggerCore::read_registers(nlohmann::json json_data, nlohmann::json& re
   return Status::success("read_registers 成功");
 }
 
+Status DebuggerCore::set_breakpoint(BreakpointType type, uint64_t address, int& breakpoint_id)
+{
+
+  if (type == BreakpointType::SOFTWARE)
+  {
+    breakpoint_id = breakpoint_manager.set_software_breakpoint(m_current_tid, address);
+  }
+  else if (type == BreakpointType::HARDWARE_EXECUTION || 
+  type == BreakpointType::HARDWARE_READWRITE ||
+  type == BreakpointType::HARDWARE_WRITE)
+  {
+    breakpoint_id = breakpoint_manager.set_hardware_breakpoint(m_current_tid, address, type);
+  }
+  else 
+  {
+    breakpoint_id = -1;
+    return Status::fail("未知类型");
+  }
+
+  if (breakpoint_id == -1)
+    return Status::fail("set_breakpoint 失败");
+  else  
+    return Status::success("set_breakpoint 成功");
+}
+
+Status DebuggerCore::remove_breakpoint(int breakpoint_id)
+{
+  return breakpoint_manager.remove_breakpoint(breakpoint_id);
+}
+
+Status DebuggerCore::enable_breakpoint(int breakpoint_id)
+{
+  return breakpoint_manager.enable(breakpoint_id);
+}
+
+Status DebuggerCore::disable_breakpoint(int breakpoint_id)
+{
+  return breakpoint_manager.disable(breakpoint_id);
+}
+
+Status DebuggerCore::get_breakpoint(int breakpoint_id, Breakpoint& breakpoint)
+{
+  auto breakpoint_opt = breakpoint_manager.get_breakpoint(breakpoint_id);
+  if (!breakpoint_opt)
+    return Status::fail("没有 id: {} 对应的断点", breakpoint_id);
+  else  
+  {
+    breakpoint = breakpoint_opt.value();
+    return Status::success("get_breakpoint 成功");
+  }
+}
+
+Status DebuggerCore::get_breakpoint(uint64_t address, Breakpoint& breakpoint)
+{
+  auto breakpoint_opt = breakpoint_manager.get_breakpoint(address);
+  if (!breakpoint_opt)
+    return Status::fail("没有 address: {} 对应的断点", address);
+  else  
+  {
+    breakpoint = breakpoint_opt.value();
+    return Status::success("get_breakpoint 成功");
+  }
+}
+
+Status DebuggerCore::get_breakpoints(std::vector<Breakpoint>& breakpoints)
+{
+  breakpoints = breakpoint_manager.get_breakpoints();
+  if (breakpoints.empty())
+    return Status::fail("get_breakpoints 失败");
+  else 
+    return Status::success("get_breakpoints 成功");
+}
+
+Status DebuggerCore::get_breakpoints(pid_t tid, std::vector<Breakpoint>& breakpoints)
+{
+  breakpoints = breakpoint_manager.get_breakpoints(tid);
+  if (breakpoints.empty())
+    return Status::fail("get_breakpoints 失败");
+  else 
+    return Status::success("get_breakpoints 成功");
+}
+
 Status DebuggerCore::resume_thread(pid_t tid)
 {
   // 检查线程是否存在
@@ -794,6 +878,11 @@ Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
   return Status::success("syscall 成功");
 }
 
+/*
+#define PROT_READ 0x1
+#define PROT_WRITE 0x2
+#define PROT_EXEC 0x4
+*/
 Status DebuggerCore::allocate_memory(size_t size, int permissions)
 {
   uint64_t addr;

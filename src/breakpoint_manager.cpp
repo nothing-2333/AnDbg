@@ -8,32 +8,41 @@
 #include "log.hpp"
 #include "memory_control.hpp"
 #include "register_control.hpp"
+#include "status.hpp"
+
 
 namespace Core 
 {
 
-BreakpointManager::BreakpointManager(pid_t pid)
+BreakpointManager::BreakpointManager()
 {
-  m_pid = pid;
   m_next_breakpoint_id_ = 1;
-  m_hardware_registers_count_ = 0;
-  init_hardware_register();
 }
 
-bool BreakpointManager::init_hardware_register()
+
+int BreakpointManager::get_hardware_registers_count(pid_t tid)
 {
-  m_hardware_registers_count_ = 0;
+  if (init_hardware_register(tid).is_success())
+    return m_hardware_registers_count_[tid];
+
+  return -1;
+}
+
+Base::Status BreakpointManager::init_hardware_register(pid_t tid)
+{
+  if (m_hardware_registers_count_.find(tid) != m_hardware_registers_count_.end()) 
+    return Base::Status::success("已经初始化"); 
+
+  m_hardware_registers_count_[tid] = 0;
   const uint64_t test_address = 0x10000000;
   const uint32_t test_control = DBGBCR_ENABLE | DBGBCR_TYPE_EXECUTION | DBGBCR_EL0 | DBGBCR_MATCH_FULL;
   auto& register_control = RegisterControl::get_instance();
 
   // 获取调试寄存器
-  const auto orign_dgb_opt = register_control.get_all_dbg(m_pid);
+  const auto orign_dgb_opt = register_control.get_all_dbg(tid);
   if (!orign_dgb_opt)
-  {
-    LOG_ERROR("获取调试寄存器原始状态失败");
-    return false;
-  }
+    return Base::Status::fail("获取调试寄存器原始状态失败");
+
   const auto& orgin_dbg = orign_dgb_opt.value();
   struct user_hwdebug_state test_dbg = orgin_dbg;
 
@@ -46,21 +55,19 @@ bool BreakpointManager::init_hardware_register()
 
   // 提交调试寄存器测试值
   // 系统会自动忽略硬件不支持的寄存器索引, 仅对存在的寄存器生效
-  if (!register_control.set_all_dbg(m_pid, test_dbg))
+  if (!register_control.set_all_dbg(tid, test_dbg))
   {
-    LOG_ERROR("提交调试寄存器测试值失败");
     // 复原, 避免污染目标进程
-    register_control.set_all_dbg(m_pid, orgin_dbg);
-    return false;
+    register_control.set_all_dbg(tid, orgin_dbg);
+    return Base::Status::fail("提交调试寄存器测试值失败");
   }
 
   // 验证
-  const auto verify_dbg_opt = register_control.get_all_dbg(m_pid);
+  const auto verify_dbg_opt = register_control.get_all_dbg(tid);
   if (!verify_dbg_opt)
   {
-    LOG_ERROR("验证时, 获取调试寄存器失败");
-    register_control.set_all_dbg(m_pid, orgin_dbg);
-    return false;
+    register_control.set_all_dbg(tid, orgin_dbg);
+    return Base::Status::fail("验证时, 获取调试寄存器失败");
   }
   const auto& verify_dbg = verify_dbg_opt.value();
   for (int index = 0; index < 16; ++index)
@@ -68,7 +75,7 @@ bool BreakpointManager::init_hardware_register()
     // 地址和控制字都与测试值一致, 说明寄存器存在且可写
     if (verify_dbg.dbg_regs[index].addr == test_address && verify_dbg.dbg_regs[index].ctrl == test_control) 
     {
-      m_hardware_registers_count_++;
+      m_hardware_registers_count_[tid]++;
       LOG_DEBUG("✅ DBG%d 验证成功", index);
     } 
     else 
@@ -79,27 +86,24 @@ bool BreakpointManager::init_hardware_register()
   }
 
   // 原所有寄存器到原始值
-  if (!register_control.set_all_dbg(m_pid, orgin_dbg))
-  {
-    LOG_ERROR("⚠️ 复原调试寄存器原始状态失败! 目标进程调试寄存器可能被污染");
-    return false;
-  }
+  if (!register_control.set_all_dbg(tid, orgin_dbg))
+    return Base::Status::fail("set_all_dbg 失败! 目标进程调试寄存器可能被污染");
   else  
-  LOG_DEBUG("✅ 调试寄存器已复原到原始状态");
+    LOG_DEBUG("✅ 调试寄存器已复原到原始状态");
 
-  if (m_hardware_registers_count_ == 0)
+  if (m_hardware_registers_count_[tid] == 0)
     LOG_WARNING("不支持硬件断定, 调试寄存器数量为 0");
   else  
-    LOG_DEBUG("调试寄存器数量为 {}", m_hardware_registers_count_);
+    LOG_DEBUG("调试寄存器数量为 {}", m_hardware_registers_count_[tid]);
 
   // 初始化空闲寄存器
-  for (int i = 0; i < m_hardware_registers_count_; ++i)
-    m_free_hardware_registers_.insert(static_cast<DBRegister>(i));
+  for (int i = 0; i < m_hardware_registers_count_[tid]; ++i)
+    m_free_hardware_registers_[tid].insert(static_cast<DBRegister>(i));
 
-  return true;
+  return Base::Status::success("init_hardware_register 成功");
 }
 
-int BreakpointManager::set_software_breakpoint(pid_t tid, uint64_t address, BreakpointCondition condition)
+int BreakpointManager::set_software_breakpoint(pid_t tid, uint64_t address)
 {
   auto& memory_control = MemoryControl::get_instance();
 
@@ -128,11 +132,10 @@ int BreakpointManager::set_software_breakpoint(pid_t tid, uint64_t address, Brea
   }
 
   // 创建断点, 返回 id
-  return new_breakpoint(tid, address, BreakpointType::SOFTWARE, original_instruction, condition);
+  return new_breakpoint(tid, address, BreakpointType::SOFTWARE, original_instruction);
 }
 
-
-int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, BreakpointType type, BreakpointCondition condition)
+int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, BreakpointType type)
 {
   // 入参校验
   if ((address & 0x3) != 0) 
@@ -142,15 +145,17 @@ int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, Brea
   if (check_duplicate_breakpoint(tid, address)) return -1;
 
   // 分配硬件寄存器
-  if (m_free_hardware_registers_.empty())
+  if (m_free_hardware_registers_[tid].empty())
   {
     LOG_ERROR("无空闲硬件断点寄存器");
     return -1;
   }
 
+  if (init_hardware_register(tid).is_fail()) return -1;
+
   // 写入地址寄存器和控制寄存器
-  DBRegister reg = *m_free_hardware_registers_.begin();
-  m_free_hardware_registers_.erase(reg);
+  DBRegister reg = *m_free_hardware_registers_[tid].begin();
+  m_free_hardware_registers_[tid].erase(reg);
 
   auto& register_control = RegisterControl::get_instance();
   uint64_t control = DBGBCR_ENABLE | DBGBCR_EL0 | DBGBCR_MATCH_FULL;
@@ -165,28 +170,26 @@ int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, Brea
   if (!register_control.set_dbg(tid, reg, {address, control}))
   {
     LOG_ERROR("配置硬件寄存器失败");
-    m_free_hardware_registers_.insert(reg);  // 归还寄存器
+    m_free_hardware_registers_[tid].insert(reg);  // 归还寄存器
     return -1;
   }
 
   // 创建断点, 返回 id
-  int id = new_breakpoint(tid, address, type, 0, condition);
+  int id = new_breakpoint(tid, address, type, 0);
   m_breakpoints_[id].hardware_register = reg;
 
   return id;
 }
 
-bool BreakpointManager::remove_breakpoint(int breakpoint_id)
+Base::Status BreakpointManager::remove_breakpoint(int breakpoint_id)
 {
   auto& memory_control = MemoryControl::get_instance();
 
   // 查找断点, 并检查
   auto breakpont_item = m_breakpoints_.find(breakpoint_id);
   if (breakpont_item == m_breakpoints_.end())
-  {
-    LOG_ERROR("未找到 ID: {} 的断点", breakpoint_id);
-    return false;
-  }
+    return Base::Status::fail("未找到 ID: {} 的断点", breakpoint_id);
+
   Breakpoint& breakpoint = breakpont_item->second;
 
   // 软件断点
@@ -194,10 +197,7 @@ bool BreakpointManager::remove_breakpoint(int breakpoint_id)
   {
     // 恢复原指令
     if (!memory_control.write_memory(breakpoint.tid, breakpoint.address, &breakpoint.original_instruction, 4))
-    {
-      LOG_ERROR("恢复软件断点 [ID: {}] 原指令失败", breakpoint_id);
-      return false;
-    }
+      return Base::Status::fail("恢复软件断点 [ID: {}] 原指令失败", breakpoint_id);
   }
   // 硬件断点
   else if (breakpoint.hardware_register != DBRegister::INVALID) 
@@ -212,7 +212,7 @@ bool BreakpointManager::remove_breakpoint(int breakpoint_id)
       register_control.set_dbg(breakpoint.tid, breakpoint.hardware_register, {address, control});
     }
     // 归还寄存器到空闲集合
-    m_free_hardware_registers_.insert(breakpoint.hardware_register);
+    m_free_hardware_registers_[breakpoint.tid].insert(breakpoint.hardware_register);
   }
 
   // 清理断点元数据
@@ -221,62 +221,20 @@ bool BreakpointManager::remove_breakpoint(int breakpoint_id)
     m_tid_breakpoints_map_.erase(breakpoint.tid);
   m_breakpoints_.erase(breakpont_item);
 
-  LOG_DEBUG("成功移除断点: ID = {}, TID = {}, 地址 = 0x{:x}", breakpoint_id, breakpoint.tid, breakpoint.address);
-  return true;
+  return Base::Status::success("成功移除断点: ID = {}, TID = {}, 地址 = 0x{:x}", breakpoint_id, breakpoint.tid, breakpoint.address);
 }
 
-bool BreakpointManager::check_breakpoint_condition(int breakpoint_id)
-{
-  auto breakpoint_item = m_breakpoints_.find(breakpoint_id);
-  // 断点不存在或未启用
-  if (breakpoint_item == m_breakpoints_.end() || !breakpoint_item->second.enabled)
-  {
-    LOG_DEBUG("断点 [ID: {}] 不存在或未启用", breakpoint_id);
-    return false;
-  }
-    
-  const auto& breakpoint = breakpoint_item->second;
-  // 无条件断点，直接满足
-  if (!breakpoint.condition) return true;
-
-  // 执行回调
-  try 
-  {
-    auto& register_control = RegisterControl::get_instance();
-    auto gpr_opt = register_control.get_all_gpr(breakpoint.tid);
-    if (!gpr_opt)
-    {
-      LOG_DEBUG("获取寄存器失败");
-      return false;
-    }
-
-    bool met = breakpoint.condition(breakpoint.tid, breakpoint.address, gpr_opt.value());
-    LOG_DEBUG("断点 [ID: {}] 条件检查: {}", breakpoint_id, met ? "满足" : "不满足");
-    return met;
-  } 
-  catch (const std::exception& error) 
-  {
-    LOG_ERROR("断点 [ID: {}] 条件回调异常: {}", breakpoint_id, error.what());
-    return false;
-  }
-}
-
-bool BreakpointManager::enable(int breakpoint_id)
+Base::Status BreakpointManager::enable(int breakpoint_id)
 {
   // 查找断点
   auto breakpoint_item = m_breakpoints_.find(breakpoint_id);
   if (breakpoint_item == m_breakpoints_.end())
-  {
-    LOG_ERROR("启用断点失败: 未找到 ID = {} 的断点", breakpoint_id);
-    return false;
-  }
+    return Base::Status::fail("启用断点失败: 未找到 ID = {} 的断点", breakpoint_id);
+
   Breakpoint& breakpoint = breakpoint_item->second;
 
   if (breakpoint.enabled)
-  {
-    LOG_DEBUG("断点 [ID: {}] 已处于启用状态, 无需重复操作", breakpoint_id);
-    return true;
-  }
+    return Base::Status::success("断点 [ID: {}] 已处于启用状态, 无需重复操作", breakpoint_id);
 
   auto& memory_control = MemoryControl::get_instance();
   auto& register_control = RegisterControl::get_instance();
@@ -285,51 +243,35 @@ bool BreakpointManager::enable(int breakpoint_id)
   if (breakpoint.type == BreakpointType::SOFTWARE)
   {
     if (!memory_control.write_memory(breakpoint.tid, breakpoint.address, &Breakpoint::BRK_OPCODE, 4))
-    {
-      LOG_ERROR("启用软件断点 [ID: {}] 失败: 写入断点指令失败", breakpoint_id);
-      return false;
-    }
+      return Base::Status::fail("写入断点指令失败");
   }
   else if (breakpoint.hardware_register != DBRegister::INVALID) 
   {
     auto dbg_opt = register_control.get_dbg(breakpoint.tid, breakpoint.hardware_register);
     if (!dbg_opt) 
-    {
-      LOG_ERROR("启用硬件断点 [ID: {}] 失败: 获取调试寄存器失败", breakpoint_id);
-      return false;
-    }
+      return Base::Status::fail("获取调试寄存器失败");
 
     // 置位启用断点
     auto [address, control] = dbg_opt.value();
     control |= DBGBCR_ENABLE; 
     if (!register_control.set_dbg(breakpoint.tid, breakpoint.hardware_register, {address, control}))
-    {
-      LOG_ERROR("启用硬件断点 [ID: {}] 失败: 更新控制寄存器失败", breakpoint_id);
-      return false;
-    }
+      return Base::Status::fail("更新控制寄存器失败");;
   }
 
   breakpoint.enabled = true;
-  LOG_DEBUG("成功启用断点 [ID: {}, TID: {}, 地址: 0x{:x}]", breakpoint_id, breakpoint.tid, breakpoint.address);
-  return true;
+  return  Base::Status::success("成功启用断点 [ID: {}, TID: {}, 地址: 0x{:x}]", breakpoint_id, breakpoint.tid, breakpoint.address);
 }
 
-bool BreakpointManager::disable(int breakpoint_id)
+Base::Status BreakpointManager::disable(int breakpoint_id)
 {
   // 查找断点
   auto breakpoint_item = m_breakpoints_.find(breakpoint_id);
   if (breakpoint_item == m_breakpoints_.end()) 
-  {
-    LOG_ERROR("禁用断点失败: 未找到 ID = {} 的断点", breakpoint_id);
-    return false;
-  }
+    return Base::Status::fail("禁用断点失败: 未找到 ID = {} 的断点", breakpoint_id);
 
   Breakpoint& breakpoint = breakpoint_item->second;
   if (!breakpoint.enabled) 
-  {
-    LOG_DEBUG("断点 [ID: {}] 已处于禁用状态, 无需重复操作", breakpoint_id);
-    return true;
-  }
+    return Base::Status::success("断点 [ID: {}] 已处于禁用状态, 无需重复操作", breakpoint_id);
 
   auto& memory_control = MemoryControl::get_instance();
   auto& register_control = RegisterControl::get_instance();
@@ -338,34 +280,24 @@ bool BreakpointManager::disable(int breakpoint_id)
   if (breakpoint.type == BreakpointType::SOFTWARE)
   {
     if (!memory_control.write_memory(breakpoint.tid, breakpoint.address, &breakpoint.original_instruction, 4))
-    {
-      LOG_ERROR("禁用软件断点 [ID: {}] 失败: 恢复原指令失败", breakpoint_id);
-      return false;
-    }
+      return Base::Status::fail("恢复原指令失败");
   }
   else if (breakpoint.hardware_register != DBRegister::INVALID) 
   {
     auto dbg_opt = register_control.get_dbg(breakpoint.tid, breakpoint.hardware_register);
     if (!dbg_opt) 
-    {
-      LOG_ERROR("启用硬件断点 [ID: {}] 失败: 获取调试寄存器失败", breakpoint_id);
-      return false;
-    }
+      return Base::Status::fail("get_dbg 失败");
 
     // 清除启用位
     auto [address, control] = dbg_opt.value();
     control &= ~DBGBCR_ENABLE;
-    if (!register_control.set_dbg(breakpoint.id, breakpoint.hardware_register, {address, control}))
-    {
-      LOG_ERROR("启用硬件断点 [ID: {}] 失败: 更新控制寄存器失败", breakpoint_id);
-      return false;
-    }
+    if (!register_control.set_dbg(breakpoint.tid, breakpoint.hardware_register, {address, control}))
+      return Base::Status::fail("更新控制寄存器失败");
   }
 
   // 标记为禁用
   breakpoint.enabled = false;
-  LOG_DEBUG("成功禁用断点 [ID: {}, TID: {}, 地址: 0x{:x}]", breakpoint_id, breakpoint.tid, breakpoint.address);
-  return true;
+  return Base::Status::success("成功禁用断点 [ID: {}, TID: {}, 地址: 0x{:x}]", breakpoint_id, breakpoint.tid, breakpoint.address);
 }
 
 std::vector<Breakpoint> BreakpointManager::get_breakpoints()
@@ -412,19 +344,27 @@ std::optional<Breakpoint> BreakpointManager::get_breakpoint(int breakpoint_id)
   return std::nullopt;
 }
 
-int BreakpointManager::new_breakpoint(pid_t tid, uint64_t address, BreakpointType type, 
-  uint32_t original_instruction, BreakpointCondition condition)
+std::optional<Breakpoint> BreakpointManager::get_breakpoint(uint64_t address)
+{
+  auto target = m_address_breakpoint_map_.find(address);
+  if (target == m_address_breakpoint_map_.end())
+    return get_breakpoint(target->second);
+  return std::nullopt;
+}
+
+int BreakpointManager::new_breakpoint(pid_t tid, uint64_t address, BreakpointType type, uint32_t original_instruction)
 {
   // 构建
   int breakpoint_id = m_next_breakpoint_id_++;
 
-  Breakpoint breakpoint(breakpoint_id, tid, address, type, condition);
+  Breakpoint breakpoint(breakpoint_id, tid, address, type);
   breakpoint.enabled = true;
   breakpoint.original_instruction = original_instruction;
 
   // 加入管理
   m_breakpoints_.emplace(breakpoint_id, breakpoint);
   m_tid_breakpoints_map_[tid].insert(breakpoint_id);
+  m_address_breakpoint_map_[address] = breakpoint_id;
 
   LOG_DEBUG("添加断点 [ID: {}, TID: {}, 地址: 0x{:x}]", breakpoint_id, tid, address);
 
@@ -436,10 +376,7 @@ bool BreakpointManager::check_duplicate_breakpoint(pid_t tid, uint64_t address)
   for (const auto& [id, breakpoint] : m_breakpoints_)
   {
     if (breakpoint.tid == tid && breakpoint.address == address)
-    {
-      LOG_WARNING("线程 {} 地址 0x{:x} 已存在该类型硬件断点", tid, address);
       return true;
-    }
   }
 
   return false;

@@ -9,19 +9,15 @@
 #include <unordered_set>
 #include <vector>
 #include <string>
-
+#include "status.hpp"
 #include "register_control.hpp"
 
 namespace Core 
 {
-
-// 条件断点回调函数类型
-using BreakpointCondition = std::function<bool(pid_t tid, uint64_t address, const user_pt_regs& regs)>;
-
 // 所有断点类型
 enum class BreakpointType
 {
-  SOFTWARE,             // 软件断点
+  SOFTWARE = 1,         // 软件断点
   HARDWARE_EXECUTION,   // 硬件执行断点
   HARDWARE_WRITE,       // 硬件写入断点
   HARDWARE_READWRITE    // 硬件读写断点
@@ -37,13 +33,12 @@ struct Breakpoint
   bool enabled;                         // 是否启用
   uint32_t original_instruction;        // 保存被替换的原始指令字节
   DBRegister hardware_register;         // 硬件断点使用的寄存器
-  BreakpointCondition condition;        // 条件断点回调函数
 
   // ARM64 断点指令常量
   static constexpr uint32_t BRK_OPCODE = 0xD4200000;
 
-  Breakpoint(int id_, pid_t tid_, uint64_t address_, BreakpointType type_, BreakpointCondition condition_)
-    : id(id_), tid(tid_), address(address_), type(type_), condition(condition_), 
+  Breakpoint(int id_, pid_t tid_, uint64_t address_, BreakpointType type_)
+    : id(id_), tid(tid_), address(address_), type(type_),
     enabled(false), original_instruction(0), hardware_register(DBRegister::INVALID)
   {
     if (tid < 1)
@@ -72,47 +67,47 @@ private:
   static constexpr uint64_t DBGBCR_MASK = 0x3ULL << 12;         // 地址匹配模式(默认全匹配)
   static constexpr uint64_t DBGBCR_MATCH_FULL = 0x0ULL << 12;   // 全地址匹配
 
-  // 进程 id
-  pid_t m_pid;
-
   // 所有断点, 占内存
   std::unordered_map<int, Breakpoint> m_breakpoints_;                 
   
   // 通过 tid 找断点 ID
   std::unordered_map<pid_t, std::unordered_set<int>> m_tid_breakpoints_map_;         
+
+  // 通过地址找断点 ID
+  std::unordered_map<uint64_t, int> m_address_breakpoint_map_;    
   
   // 空闲硬件断点寄存器
-  std::unordered_set<DBRegister> m_free_hardware_registers_;
+  std::unordered_map<pid_t, std::unordered_set<DBRegister>> m_free_hardware_registers_;
 
   // 已经寄存器数量
-  size_t m_hardware_registers_count_;
+  std::unordered_map<pid_t, int> m_hardware_registers_count_;
 
   // 下一个要分配的断点 ID
   int m_next_breakpoint_id_;                                                   
   
 public:
-  BreakpointManager(pid_t pid);
+  BreakpointManager();
+
+  // 获取支持的硬件断点数量
+  int get_hardware_registers_count(pid_t tid);
 
   // 获取支持的硬件断点数量, 需要附加子进程后调用, 在这里会初始化 m_free_hardware_registers
-  bool init_hardware_register();
+  Base::Status init_hardware_register(pid_t tid);
 
   // 设置软件断点 
-  int set_software_breakpoint(pid_t tid, uint64_t address, BreakpointCondition condition=nullptr);
+  int set_software_breakpoint(pid_t tid, uint64_t address);
   
   // 设置硬件断点
-  int set_hardware_breakpoint(pid_t tid, uint64_t address, BreakpointType type, BreakpointCondition condition=nullptr);
+  int set_hardware_breakpoint(pid_t tid, uint64_t address, BreakpointType type);
 
   // 移除断点对象
-  bool remove_breakpoint(int breakpoint_id);
-
-  // 检查断点条件
-  bool check_breakpoint_condition(int breakpoint_id);
+  Base::Status remove_breakpoint(int breakpoint_id);
 
   // 启用断点
-  bool enable(int breakpoint_id);
+  Base::Status enable(int breakpoint_id);
 
   // 禁用断点
-  bool disable(int breakpoint_id);
+  Base::Status disable(int breakpoint_id);
 
   // 获取所有断点
   std::vector<Breakpoint> get_breakpoints();
@@ -123,11 +118,13 @@ public:
   // 根据 id 获取断点对象
   std::optional<Breakpoint> get_breakpoint(int breakpoint_id);
 
+  // 根据地址获取断点对象
+  std::optional<Breakpoint> get_breakpoint(uint64_t address);
+
 private:
 
   // 新建断点对象
-  int new_breakpoint(pid_t tid, uint64_t address, BreakpointType type, 
-  uint32_t original_instruction, BreakpointCondition condition);
+  int new_breakpoint(pid_t tid, uint64_t address, BreakpointType type, uint32_t original_instruction);
 
   // 检查重复断点
   bool check_duplicate_breakpoint(pid_t tid, uint64_t address);
