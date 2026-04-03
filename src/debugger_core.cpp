@@ -833,7 +833,7 @@ Status DebuggerCore::write_memory(uint64_t address, const void* buf, size_t size
 
   if (memory_crl.write_memory(m_pid, address, buf, size))
     return Status::success("write_memory 成功");
-  else return Status::success("write_memory 失败, errno: {}", strerror(errno));
+  else return Status::fail("write_memory 失败, errno: {}", strerror(errno));
 }
 
 Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
@@ -843,13 +843,27 @@ Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
   if (args.size() < 1) 
     return Status::fail("args.size() 为 0");
 
+  // 找到一个可执行, 私有的内存区域
+  auto memory_regions = memory_crl.get_memory_regions(m_pid);
+  uint64_t exe_addr = 0;
+  for (const auto& region : memory_regions) 
+  {
+    if (region.is_executable() && region.is_private() && region.is_writable()) 
+    {
+      exe_addr = region.start_address;
+      break;
+    }
+  }
+  if (exe_addr == 0) 
+    return Status::fail("未找到可用的内存区域");
+
+  // 获取并备份原始寄存器
   auto gpr_opt = register_crl.get_all_gpr(m_current_tid);
   if (!gpr_opt) 
     return Status::fail("get_all_gpr 失败");
-
   user_pt_regs backup = gpr_opt.value();
 
-  // 写入系统调用号和参数
+  // 构造系统调用参数, ARM64 的系统调用约定是 x8 存放 syscall number, x0-x7 存放参数
   gpr_opt.value().regs[8] = args[0];
   for (int i = 1; i < args.size() && i < 8; ++i)
     gpr_opt.value().regs[i - 1] = args[i];
@@ -857,23 +871,33 @@ Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
   if (!register_crl.set_all_gpr(m_current_tid, gpr_opt.value()))
     return Status::fail("set_all_gpr 失败");
 
-  uint64_t pc = backup.pc;
-  uint32_t orig_insn, svc_insn = 0xD4000001;
-  memory_crl.read_memory(m_pid, pc, &orig_insn, 4);
-  memory_crl.write_memory(m_pid, pc, &svc_insn, 4);
+  // 保存原始 exe_addr 处的指令 + 写入 SVC 指令
+  uint32_t orig_insn;
+  if (!memory_crl.read_memory(m_pid, exe_addr, &orig_insn, 4))
+    return Status::fail("读取原始指令失败");
 
+  // ARM64 svc 0 指令
+  const uint32_t SVC_INSN = 0xD4000001;
+  if (!memory_crl.write_memory(m_pid, exe_addr, &SVC_INSN, 4))
+    return Status::fail("写入 SVC 指令失败");
+
+  // 设置 pc 寄存器指向 exe_addr
+  if (!register_crl.set_gpr(m_current_tid, GPRegister::PC, exe_addr))
+    return Status::fail("设置 PC 寄存器失败");
+
+  // 单步执行 SVC 指令
   Status s = hardware_step_into();
   if (s.is_fail()) return s;
 
-  memory_crl.write_memory(m_pid, pc, &orig_insn, 4);
+  // 获取返回值
+  auto x0_opt = register_crl.get_gpr(m_current_tid, GPRegister::X0);
+  if (!x0_opt) 
+    return Status::fail("get_gpr 失败");
+  ret = x0_opt.value();
 
-  gpr_opt = register_crl.get_all_gpr(m_current_tid);
-  if (!gpr_opt) 
-    return Status::fail("get_all_gpr 失败");
-
-  ret = gpr_opt.value().regs[0];
-
-  register_crl.set_all_gpr(m_pid, backup);
+  // 恢复
+  memory_crl.write_memory(m_pid, exe_addr, &orig_insn, 4);
+  register_crl.set_all_gpr(m_current_tid, backup);
 
   return Status::success("syscall 成功");
 }
@@ -886,7 +910,7 @@ Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
 Status DebuggerCore::allocate_memory(size_t size, int permissions)
 {
   uint64_t addr;
-  syscall({
+  Status s = syscall({
     (uint64_t)SYS_mmap,
     0,
     size,
@@ -895,8 +919,9 @@ Status DebuggerCore::allocate_memory(size_t size, int permissions)
     (uint64_t)-1,
     0
   }, addr);
+  if (s.is_fail()) return s;
 
-  if (addr > 0xFFFFFFFFFFFFF000ULL)
+  if (addr > (uint64_t)-1)
     return Status::fail("mmap 失败");
 
   g_allocated_memory[addr] = size;
@@ -907,12 +932,12 @@ Status DebuggerCore::deallocate_memory(uint64_t address)
 {
   auto it = g_allocated_memory.find(address);
   if (it == g_allocated_memory.end())
-    return Status::fail("地址未分配");
+    return Status::fail("地址未分配: 0x{:x}", address);
 
   size_t size = it->second;
   uint64_t ret;
-  syscall({(uint64_t)SYS_munmap, address, size}, ret);
-
+  Status s = syscall({(uint64_t)SYS_munmap, address, size}, ret);
+  if (s.is_fail()) return s;
   if (ret != 0)
     return Status::fail("munmap 失败");
 

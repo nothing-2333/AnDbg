@@ -29,7 +29,7 @@ bool MemoryControl::read_memory_ptrace(pid_t pid, uint64_t address, void* buffer
   while (bytes_read < size)
   {
     long word;
-    if (Utils::ptrace_wrapper(PTRACE_PEEKDATA, pid, 
+    if (!Utils::ptrace_wrapper(PTRACE_PEEKDATA, pid, 
       reinterpret_cast<void*>(address + bytes_read), nullptr, 0, &word))
       return false;
       
@@ -54,7 +54,7 @@ bool MemoryControl::write_memory_ptrace(pid_t pid, uint64_t address, const void*
     // 如果不足一个字, 需要先读取原始数据
     if (remain_size < sizeof(word))
     {
-      if (Utils::ptrace_wrapper(PTRACE_PEEKDATA, pid, 
+      if (!Utils::ptrace_wrapper(PTRACE_PEEKDATA, pid, 
       reinterpret_cast<void*>(address + bytes_written), nullptr, 0, &word))
         return false;
     }
@@ -62,8 +62,8 @@ bool MemoryControl::write_memory_ptrace(pid_t pid, uint64_t address, const void*
     size_t copy_size = std::min(sizeof(word), remain_size);
     memcpy(&word, byte_buffer + bytes_written, copy_size);
 
-    if (Utils::ptrace_wrapper(PTRACE_POKEDATA, pid, 
-      reinterpret_cast<void*>(address + bytes_written), reinterpret_cast<void*>(word), sizeof(word)))
+    if (!Utils::ptrace_wrapper(PTRACE_POKEDATA, pid, 
+      reinterpret_cast<void*>(address + bytes_written), reinterpret_cast<void*>(&word), sizeof(word)))
       return false;
 
     bytes_written += copy_size;
@@ -76,7 +76,7 @@ std::vector<MemoryRegion> MemoryControl::get_memory_regions(pid_t pid)
 {
   std::vector<MemoryRegion> regions;
 
-  static std::optional<Process::ProcFile> maps_file = Process::ProcFile::open(pid, Process::ProcFileType::MAPS);
+  std::optional<Process::ProcFile> maps_file = Process::ProcFile::open(pid, Process::ProcFileType::MAPS);
   if (!maps_file || !maps_file->is_open()) 
   {
     LOG_ERROR("解析进程状态失败: 无法打开/proc/{}/maps", pid);
@@ -101,6 +101,8 @@ std::vector<MemoryRegion> MemoryControl::get_memory_regions(pid_t pid)
       return a.start_address < b.start_address;
   });
 
+  LOG_DEBUG("pid {} 找到 {} 个内存区域", pid, regions.size());
+
   return regions;
 }
 
@@ -118,49 +120,43 @@ bool MemoryControl::parse_maps_line(const std::string& line, MemoryRegion& regio
     return false;
   }
 
-  try 
-  {
-    region.start_address = std::stoull(address_range.substr(0, hyphen_position), nullptr, 16);
-    region.end_address = std::stoull(address_range.substr(hyphen_position + 1), nullptr, 16);
-    region.size = region.end_address - region.start_address;
+  region.start_address = std::stoull(address_range.substr(0, hyphen_position), nullptr, 16);
+  region.end_address = std::stoull(address_range.substr(hyphen_position + 1), nullptr, 16);
+  region.size = region.end_address - region.start_address;
 
-    // 验证区域有效性
-    if (region.size == 0)
-    {
-      LOG_WARNING("跳过大小为 0 的内存区域: {}", line);
-      return false;
-    }
-
-    // 结束地址必须大于起始地址
-    if (region.end_address <= region.start_address)
-    {
-      LOG_ERROR("地址范围无效，结束地址 <= 起始地址: {}", address_range);
-      return false;
-    }
-  } 
-  catch (const std::invalid_argument& e) 
+  // 验证区域有效性
+  if (region.size == 0)
   {
-    LOG_ERROR("地址解析失败, 非十六进制: {} | 错误: {}", address_range, e.what());
-    return false;
-  }
-  catch (const std::out_of_range& e)
-  {
-    LOG_ERROR("地址超出 uint64_t 范围: {} | 错误: {}", address_range, e.what());
+    LOG_WARNING("跳过大小为 0 的内存区域: {}", line);
     return false;
   }
 
-  // 验证权限字段格式
+  // 结束地址必须大于起始地址
+  if (region.end_address <= region.start_address)
+  {
+    LOG_ERROR("地址范围无效，结束地址 <= 起始地址: {}", address_range);
+    return false;
+  }
+  
+  iss >> region.permissions;
   if (region.permissions.empty() || region.permissions.size() > 5)
     LOG_WARNING("权限字段格式异常: {} | 行内容: {}", region.permissions, line);
+
+  std::string offset_str;
+  iss >> offset_str;
+  region.offset = std::stoull(offset_str, nullptr, 16);
+
+  iss >> region.device;
+
+  std::string inode_str;
+  iss >> inode_str;
+  region.inode = std::stoull(inode_str);
 
   // 解析路径名
   std::getline(iss >> std::ws, region.pathname);
 
   // 处理空路径名的情况
   if (region.pathname.empty()) region.pathname = "[anonymous]";
-
-  // 额外的完整性检查
-  if (iss.fail() && !iss.eof()) LOG_WARNING("解析 maps 行时遇到流错误: {}", line);
 
   return true;
 }
@@ -173,6 +169,9 @@ bool MemoryControl::read_memory(pid_t pid, uint64_t address, void* buffer, size_
   ssize_t ret = process_vm_readv(pid, &loval_iov, 1, &remote_iov, 1, 0);
   if (ret == static_cast<ssize_t>(size)) return true;
 
+  LOG_ERROR("process_vm_readv 失败 | pid: {} | addr: 0x{:x} | 大小: {} | 错误: {} ({})",
+  pid, address, size, strerror(errno), errno);
+
   // 如果 process_vm_readv 失败, 回退到 ptrace
   LOG_WARNING("process_vm_readv 失败, 使用 ptrace");
   return read_memory_ptrace(pid, address, buffer, size);
@@ -181,10 +180,14 @@ bool MemoryControl::read_memory(pid_t pid, uint64_t address, void* buffer, size_
 bool MemoryControl::write_memory(pid_t pid, uint64_t address, const void* buffer, size_t size)
 {
   // 使用 process_vm_writev 进行高效写入
-  struct iovec loval_iov = {const_cast<void*>(buffer), size};
+  
+  struct iovec local_iov = {const_cast<void*>(buffer), size};
   struct iovec remote_iov = {reinterpret_cast<void*>(address), size};
-  ssize_t ret = process_vm_writev(pid, &loval_iov, 1, &remote_iov, 1, 0);
+  ssize_t ret = process_vm_writev(pid, &local_iov, 1, &remote_iov, 1, 0);
   if (ret == static_cast<ssize_t>(size)) return true;
+
+  LOG_ERROR("process_vm_writev 失败 | pid: {} | addr: 0x{:x} | 大小: {} | 错误: {} ({})",
+  pid, address, size, strerror(errno), errno);
 
   // 如果 process_vm_writev 失败, 回退到 ptrace
   LOG_WARNING("process_vm_writev 失败, 使用 ptrace");

@@ -23,7 +23,7 @@ bool ptrace_wrapper(int request, pid_t pid, void* address, void* data, size_t da
     ret = ptrace(request, pid, address, data);
 
   // 记录日志
-  LOG_DEBUG("ptrace(request: {}, pid: {}, address: {:p}, data: {:p}, data_size: {}, ret: 0x{:x})",
+  LOG_DEBUG("ptrace(request: {}, pid: {}, address: {:p}, data: {:p}, data_size: {}, ret: {})",
     request, pid, static_cast<const void*>(address), static_cast<const void*>(data), data_size, ret
   );
 

@@ -196,11 +196,15 @@ std::optional<T> hex_str_to_num(const std::string& hex_str)
 }
 
 template <typename T>
-std::optional<std::string> num_to_hex_str(T num)
+std::optional<std::string> num_to_hex_str(T num, bool with_prefix = true)
 {
   static_assert(std::is_unsigned_v<T>, "num_to_hex_str 只支持无符号类型");
 
-  if (num == 0) return "0x0";
+  if (num == 0) 
+  {
+    if (with_prefix) return "0x0";
+    else return "0";
+  }
 
   constexpr const char* hex_digits = "0123456789abcdef";
   std::string hex_str;
@@ -215,7 +219,9 @@ std::optional<std::string> num_to_hex_str(T num)
   }
   std::reverse(hex_str.begin(), hex_str.end());
 
-  return "0x" + hex_str;
+  if (with_prefix) hex_str = "0x" + hex_str;
+
+  return hex_str;
 }
 
 }

@@ -19,6 +19,9 @@ struct MemoryRegion
   uint64_t end_address;
   uint64_t size;
   std::string permissions;  // 内存区域的访问权限标志
+  uint64_t offset;          // 映射文件的偏移
+  std::string device;       // 设备号
+  uint64_t inode;           // inode 号
   std::string pathname;     // 映射的文件路径或区域描述
 
   bool is_readable() const { return permissions.find('r') != std::string::npos; }

@@ -14,17 +14,25 @@ def main():
         return
 
     try:
-        response = client.send_command("launch", {"target": "com.example.andbgtest/com.example.andbgtest.MainActivity"})
+        response = client.send_command("attach", {"target": "com.example.andbgtest"})
         print(f"服务器响应: {response}")
       
         response = client.send_command("get_memory_regions")
         if response: print(f"服务器响应: {response}")
       
-        response = client.send_command("allocate_memory", {"size": 0x10, "permissions": 0x7})
+        # response = client.send_command("allocate_memory", {"size": 0x10, "permissions": 0x7})
+        # if response: print(f"服务器响应: {response}")
+        
+        response = client.send_command("read_memory", {"address": 0x78f4efb000, "size": 16})
         if response: print(f"服务器响应: {response}")
         
-        # response = client.send_command("write_memory", {"address": "0x12345678", "size": 16})
-        # if response: print(f"服务器响应: {response}")
+        response = client.send_command("write_memory", {"address": 0x78f4efb000, "data": [0x00, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99]})
+        if response: print(f"服务器响应: {response}")
+        
+        response = client.send_command("read_memory", {"address": 0x78f4efb000, "size": 16})
+        if response: print(f"服务器响应: {response}")
+        
+        response = client.send_command("detach")
         
         
     finally:

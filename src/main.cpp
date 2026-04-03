@@ -2,10 +2,13 @@
 #include "debugger_core.hpp"
 #include "log.hpp"
 #include "status.hpp"
+#include <cstdint>
 #include <string>
 #include <sys/types.h>
 #include "utils.hpp"
 
+
+// todo: 参数检查
 
 
 void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
@@ -81,7 +84,7 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
       {
         {"address", address},
         {"size", size},
-        {"data", Utils::vec_to_str(buffer)}
+        {"data", buffer}
       };
       return Base::Status::success(result);
     }
@@ -90,8 +93,12 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("write_memory", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("address") || !json_data.contains("data")) 
+      return Base::Status::fail("缺少参数: address / data");
+
     uint64_t address = json_data["address"];
-    std::vector<char> buffer = Utils::str_to_vec(json_data["data"]);
+    std::vector<uint8_t> buffer = json_data["data"].get<std::vector<uint8_t>>();
+    
     return debugger.write_memory(address, buffer.data(), buffer.size());
   });
 
@@ -108,6 +115,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
         result.push_back({
           {"start_address", region.start_address},
           {"size", region.size},
+          {"offset", region.offset},
+          {"device", region.device},
+          {"inode", region.inode},
           {"permissions", region.permissions},
           {"pathname", region.pathname}
         });
