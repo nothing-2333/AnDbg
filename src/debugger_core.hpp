@@ -53,7 +53,6 @@ public:
   Base::Status read_registers(nlohmann::json json_data, nlohmann::json& result);
 
   // 断点管理
-  // 条件断点的功能由前端做, 因为条件无法传递
   Base::Status set_breakpoint(BreakpointType type, uint64_t address, int& breakpoint_id);
   Base::Status remove_breakpoint(int breakpoint_id);
   Base::Status enable_breakpoint(int breakpoint_id);

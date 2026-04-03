@@ -7,11 +7,16 @@
 #include "utils.hpp"
 
 
+
 void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
 {
+  // 返回数据或者接受数据信息都要用 json 字符串, 如果没有信息可以穿空或者提示字符串
+
   server.register_handler("attach", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("target") || !json_data["target"].is_string())
+      return Base::Status::fail("attach 需要 target 参数, 且必须是字符串");
     std::string target = json_data["target"];
     return debugger.attach(target);
   });
@@ -19,6 +24,8 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("launch", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("target") || !json_data["target"].is_string())
+      return Base::Status::fail("launch 需要 target 参数, 且必须是字符串");
     std::string program = json_data["target"];
     return debugger.launch(program);
   });

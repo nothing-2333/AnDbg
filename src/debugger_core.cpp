@@ -900,7 +900,7 @@ Status DebuggerCore::allocate_memory(size_t size, int permissions)
     return Status::fail("mmap 失败");
 
   g_allocated_memory[addr] = size;
-  return Status::success("分配内存成功: 0x{:x}", addr);
+  return Status::success("0x{:x}", addr);
 }
 
 Status DebuggerCore::deallocate_memory(uint64_t address)

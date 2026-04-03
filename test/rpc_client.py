@@ -1,3 +1,4 @@
+import json
 import socket
 import struct
 
@@ -39,8 +40,12 @@ class RPCClient:
         
         # 构造消息: 命令|参数
         msg = command.encode('utf-8') + b'|'
-        if params:
-            msg += bytes(params)
+        if isinstance(params, bytes):
+            msg += params
+        elif isinstance(params, str):
+            msg += params.encode('utf-8')
+        elif isinstance(params, dict):
+            msg += json.dumps(params).encode('utf-8')
         
         # 发送消息: 8字节长度(网络字节序) + 消息内容
         length = len(msg)

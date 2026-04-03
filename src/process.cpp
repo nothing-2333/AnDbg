@@ -288,7 +288,7 @@ std::vector<pid_t> find_pid_by_package_name(const std::string& package_name)
   auto last = std::unique(match_pids.begin(), match_pids.end());
   match_pids.erase(last, match_pids.end());
 
-  LOG_DEBUG("找到 {} 个匹配包名 [{}] 的进程", match_pids.size(), package_name);
+  LOG_DEBUG("找到 {} 个匹配包名 {} 的进程", match_pids.size(), package_name);
   return match_pids;
 }
 
