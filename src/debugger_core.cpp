@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <sys/syscall.h>  
+#include <sys/types.h>
 #include <thread>
 #include <variant>
 
@@ -753,20 +754,23 @@ Status DebuggerCore::single_step_impl(SingleStepMode mode)
   if (!memory_crl.read_memory(m_pid, next_pc, &original_insn, 4))
     return Status::fail("读取下一条指令失败");
 
-  // todo: 使用断点管理模块完成下断点
-  const uint32_t brk_insn = 0xD4200000; // ARM64 BRK 断点
-  if (!memory_crl.write_memory(m_pid, next_pc, &brk_insn, 4))
-    return Status::fail("写入断点失败");
+  auto bid = breakpoint_manager.set_software_breakpoint(m_current_tid, next_pc);
+  if (bid == -1)
+    return Status::fail("设置临时断点失败");
 
   // 恢复执行
   resume_thread(m_current_tid);
 
   // 等待断点触发
   int status = 0;
-  Utils::waitpid_wrapper(m_current_tid, &status, __WALL);
+  pid_t wpid = Utils::waitpid_wrapper(m_current_tid, &status, __WALL);
+  
+  // 触发后先把断点指令恢复了, 避免影响后续执行
+  Status s = breakpoint_manager.remove_breakpoint(bid);
+  if (s.is_fail()) return s;
 
-  // 写回原指令
-  memory_crl.write_memory(m_pid, next_pc, &original_insn, 4);
+  if (wpid != m_current_tid || !WIFSTOPPED(status)) 
+    return Status::fail("等待暂停失败");
 
   return Status::success("软件单步完成");
 }
@@ -838,7 +842,7 @@ Status DebuggerCore::write_memory(uint64_t address, const void* buf, size_t size
 
 Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
 {
-  // 必须处于附加状态
+  // 必须处于暂停状态
 
   if (args.size() < 1) 
     return Status::fail("args.size() 为 0");
@@ -848,7 +852,7 @@ Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
   uint64_t exe_addr = 0;
   for (const auto& region : memory_regions) 
   {
-    if (region.is_executable() && region.is_private() && region.is_writable()) 
+    if (region.is_executable() && region.is_private()) 
     {
       exe_addr = region.start_address;
       break;
@@ -886,13 +890,14 @@ Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
     return Status::fail("设置 PC 寄存器失败");
 
   // 单步执行 SVC 指令
-  Status s = hardware_step_into();
+  Status s = step_over();
   if (s.is_fail()) return s;
 
   // 获取返回值
   auto x0_opt = register_crl.get_gpr(m_current_tid, GPRegister::X0);
-  if (!x0_opt) 
+  if (!x0_opt)
     return Status::fail("get_gpr 失败");
+
   ret = x0_opt.value();
 
   // 恢复
@@ -907,7 +912,7 @@ Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
 #define PROT_WRITE 0x2
 #define PROT_EXEC 0x4
 */
-Status DebuggerCore::allocate_memory(size_t size, int permissions)
+Status DebuggerCore::allocate_memory(size_t size, int permissions, uint64_t& allocated_address)
 {
   uint64_t addr;
   Status s = syscall({
@@ -925,7 +930,8 @@ Status DebuggerCore::allocate_memory(size_t size, int permissions)
     return Status::fail("mmap 失败");
 
   g_allocated_memory[addr] = size;
-  return Status::success("0x{:x}", addr);
+  allocated_address = addr;
+  return Status::success("allocate_memory 成功, 地址: 0x{:x}", addr);
 }
 
 Status DebuggerCore::deallocate_memory(uint64_t address)

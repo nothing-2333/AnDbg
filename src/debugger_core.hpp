@@ -45,7 +45,7 @@ public:
   Base::Status read_memory(uint64_t address, void* buf, size_t size);
   Base::Status write_memory(uint64_t address, const void* buf, size_t size);
   Base::Status get_memory_regions(std::vector<MemoryRegion>& result);
-  Base::Status allocate_memory(size_t size, int permissions);
+  Base::Status allocate_memory(size_t size, int permissions, uint64_t& allocated_address);
   Base::Status deallocate_memory(uint64_t address);
   
   // 寄存器操作

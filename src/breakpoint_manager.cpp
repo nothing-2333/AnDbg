@@ -114,7 +114,7 @@ int BreakpointManager::set_software_breakpoint(pid_t tid, uint64_t address)
   }
 
   // 检查是否已经存在断点, 避免重复设置
-  if (check_duplicate_breakpoint(tid, address)) return -1;
+  if (check_duplicate_breakpoint(address)) return -1;
 
   // 读取原指令
   uint32_t original_instruction = 0;
@@ -142,7 +142,7 @@ int BreakpointManager::set_hardware_breakpoint(pid_t tid, uint64_t address, Brea
     throw std::invalid_argument("地址 0x" + std::to_string(address) + " 未按 4 字节对齐");
 
   // 检查重复断点
-  if (check_duplicate_breakpoint(tid, address)) return -1;
+  if (check_duplicate_breakpoint(address)) return -1;
 
   // 分配硬件寄存器
   if (m_free_hardware_registers_[tid].empty())
@@ -371,11 +371,11 @@ int BreakpointManager::new_breakpoint(pid_t tid, uint64_t address, BreakpointTyp
   return breakpoint_id;
 }
 
-bool BreakpointManager::check_duplicate_breakpoint(pid_t tid, uint64_t address)
+bool BreakpointManager::check_duplicate_breakpoint(uint64_t address)
 {
   for (const auto& [id, breakpoint] : m_breakpoints_)
   {
-    if (breakpoint.tid == tid && breakpoint.address == address)
+    if (breakpoint.address == address)
       return true;
   }
 

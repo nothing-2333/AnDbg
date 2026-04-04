@@ -127,7 +127,7 @@ private:
   int new_breakpoint(pid_t tid, uint64_t address, BreakpointType type, uint32_t original_instruction);
 
   // 检查重复断点
-  bool check_duplicate_breakpoint(pid_t tid, uint64_t address);
+  bool check_duplicate_breakpoint(uint64_t address);
 };
 
 }

@@ -33,7 +33,7 @@ bool ptrace_wrapper(int request, pid_t pid, void* address, void* data, size_t da
   
   if (ret == -1 && errno != 0) 
   {
-    LOG_ERROR("ptrace 调用失败, errno: {}, 错误信息: {}", errno, strerror(errno));
+    LOG_ERROR("ptrace 调用失败, errno({}): {}", errno, strerror(errno));
     return false;
   }
   else return true;
@@ -46,7 +46,7 @@ pid_t waitpid_wrapper(pid_t pid, int* status, int __options)
   // 按返回值分类打印日志, 更易排查问题
   if (wpid == -1) 
   {
-    LOG_ERROR("waitpid 调用失败, 目标 PID: {}, 错误: {}", pid, strerror(errno));
+    LOG_ERROR("waitpid 调用失败, 目标 PID: {}, errno({}): {}", pid, errno, strerror(errno));
   }
   else if (wpid == 0)
   {
