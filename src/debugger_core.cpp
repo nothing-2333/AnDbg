@@ -150,7 +150,19 @@ Status DebuggerCore::attach(const std::string& package_name)
 
 Status DebuggerCore::launch(const std::string& package_activity)
 {
-  // todo: 如果 app 已经开启就先关闭在开启
+  // 如果 app 已经开启就先关闭在开启
+  std::string package_name;
+  size_t slash_pos = package_activity.find('/');
+  if (slash_pos != std::string::npos)
+    package_name = package_activity.substr(0, slash_pos);
+  else  
+    package_name = package_activity; 
+
+  std::string stop_cmd = "am force-stop " + package_name;
+  int stop_ret = system(stop_cmd.c_str());
+  LOG_DEBUG("关闭旧进程完成, 返回值: " + std::to_string(stop_ret));
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
   // 找到 zygote 进程
   Process::PSHelper ps_helper;
@@ -252,7 +264,7 @@ Status DebuggerCore::launch(const std::string& package_activity)
             }
             LOG_DEBUG("fork 出的进程名称: {}", child_name.value());
 
-            if (!Utils::contains_string(package_activity, child_name.value(), true))
+            if (child_name.value() != package_name)
             {
               Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
               continue;
@@ -312,7 +324,7 @@ Status DebuggerCore::launch(const std::string& package_activity)
 
 Status DebuggerCore::detach()
 {
-  if (m_pid < 0) Status::fail("m_pid 无效");
+  if (m_pid < 0) return Status::fail("m_pid 无效");
 
   bool all_ok = true;
   int success_count = 0;
@@ -334,12 +346,18 @@ Status DebuggerCore::detach()
     LOG_WARNING("部分线程分离失败, 成功: " + std::to_string(success_count) + "/" + std::to_string(m_tids.size()));
 
   return all_ok ? Status("detach 成功", StatusType::SUCCESS) : Status("detach 失败", StatusType::FAIL);
-
 }
 
 Status DebuggerCore::kill()
 {
-  if (m_pid < 0) Status::fail("m_pid 无效");
+  if (m_pid < 0) return Status::fail("m_pid 无效");
+
+  // 先 detach, 再 kill, 避免僵尸进程
+  // todo: 添加状态维护
+  detach();
+  // 等待一下确保内核完成 detach, 否则 kill 会不生效
+  // 不同的机型会不会有不同的表现(等待时间长短)?
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   if (::kill(m_pid, SIGKILL) != 0)
     return Status::fail("kill 失败, errno: {}", strerror(errno));

@@ -8,6 +8,10 @@ def main():
     parser.add_argument("-si", "--step_into", action="store_true")
     parser.add_argument("-so", "--step_over", action="store_true")
     parser.add_argument("-p", "--pause", action="store_true")
+    parser.add_argument("-a", "--attach", action="store_true")
+    parser.add_argument("-l", "--launch", action="store_true")
+    parser.add_argument("-d", "--detach", action="store_true")
+    parser.add_argument("-k", "--kill", action="store_true")
 
     args = parser.parse_args()
     
@@ -33,8 +37,20 @@ def main():
         elif args.pause:
             response = client.send_command("pause")
             
+        elif args.attach:
+            response = client.send_command("attach", {"target": "com.example.andbgtest"})
+
+        elif args.launch:
+            response = client.send_command("launch", {"target": "com.example.andbgtest/com.example.andbgtest.MainActivity"})
+
+        elif args.detach:
+            response = client.send_command("detach")
+
+        elif args.kill:
+            response = client.send_command("kill")
+            
         else: 
-            response = "请指定操作: -r resume, -si step_into, -so step_over, -p pause"
+            response = "请指定操作"
 
         print(f"服务器响应: {response}")
         
