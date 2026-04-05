@@ -681,6 +681,8 @@ Status DebuggerCore::resume_thread(pid_t tid)
   if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
     return Status::fail("resume_thread: 线程 {} 不存在", tid);
 
+  ::kill(m_pid, SIGCONT);
+
   int signo = 0;
   if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, 
   reinterpret_cast<void*>(signo)))
@@ -860,6 +862,19 @@ Status DebuggerCore::write_memory(uint64_t address, const void* buf, size_t size
     return Status::success("write_memory 成功");
   else return Status::fail("write_memory 失败, errno: {}", strerror(errno));
 }
+
+Status DebuggerCore::get_memory_regions(std::vector<MemoryRegion>& result)
+{
+  auto r = memory_crl.get_memory_regions(m_pid);
+  if (r.empty())
+    return Status::fail("get_memory_regions 失败");
+  else 
+  {
+    result = r; 
+    return Status::success("get_memory_regions 成功");
+  }
+}
+
 
 }
 
