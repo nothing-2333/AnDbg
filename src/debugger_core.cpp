@@ -819,26 +819,6 @@ Status DebuggerCore::pause()
   return Status::success("pause 成功");
 }
 
-Status DebuggerCore::disassemble(uint64_t address, size_t count, std::vector<Assembly::Instruction>& result)
-{
-  if (address <= 0)
-    return Status::fail("无效的地址");
-  if (count <= 0)
-    return Status::fail("无效的数量");
-
-  std::vector<char> codes(count * 4);
-  if (!memory_crl.read_memory(m_pid, address, codes.data(), codes.size()))
-    return Status::fail("read_memory 失败");
-
-  
-  auto r_opt = disassembly_crl.disassemble(codes);
-  if (!r_opt)
-    return Status::fail("反汇编失败");
-  result = r_opt.value();
-
-  return Status::success("disassemble 成功");
-}
-
 Status DebuggerCore::read_memory(uint64_t address, void* buf, size_t size)
 {
   if (address <= 0)

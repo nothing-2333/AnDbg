@@ -22,10 +22,7 @@ def main():
         return
 
     try:
-        if args.disassemble:
-            response = client.send_command("disassemble", {"address": 0x12345, "count": 4})
-
-        elif args.get_threads:
+        if args.get_threads:
             response = client.send_command("get_threads")
 
         elif args.switch_thread:

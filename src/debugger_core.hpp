@@ -25,14 +25,12 @@ public:
   DebuggerCore();
   ~DebuggerCore();
 
-  // 进程控制
+  // 执行控制
   Base::Status attach(pid_t pid);
   Base::Status attach(const std::string& package_name);
   Base::Status launch(const std::string& package_activity);
   Base::Status detach();
   Base::Status kill();
-
-  // 执行控制
   Base::Status resume_thread(pid_t tid);
   Base::Status resume();
   Base::Status step_into();
@@ -46,7 +44,6 @@ public:
   Base::Status write_memory(uint64_t address, const void* buf, size_t size);
   Base::Status get_memory_regions(std::vector<MemoryRegion>& result);
 
-  
   // 寄存器操作
   Base::Status write_registers(nlohmann::json json_data);
   Base::Status read_registers(nlohmann::json json_data, nlohmann::json& result);
@@ -60,9 +57,6 @@ public:
   Base::Status get_breakpoints(pid_t tid, std::vector<Breakpoint>& breakpoints);
   Base::Status get_breakpoint(int breakpoint_id, Breakpoint& breakpoint);  
   Base::Status get_breakpoint(uint64_t address, Breakpoint& breakpoint);  
-
-  // 反汇编, 更好的做法是在前端做反汇编
-  Base::Status disassemble(uint64_t address, size_t count, std::vector<Assembly::Instruction>& result);
 
   // 线程管理
   Base::Status get_threads(std::vector<pid_t>& threads);

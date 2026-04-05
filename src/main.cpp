@@ -261,29 +261,6 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     else return Base::Status::fail("参数错误");
   });
 
-  server.register_handler("disassemble", [&debugger](const std::string& params) -> Base::Status
-  {
-    nlohmann::json json_data = nlohmann::json::parse(params);
-    uint64_t address = json_data["address"];
-    size_t count = json_data["count"];
-    std::vector<Assembly::Instruction> result;
-    Base::Status s = debugger.disassemble(address, count, result);
-    if (s.is_fail()) return s;
-    else 
-    {
-      nlohmann::json j_result;
-      for (const auto& insn : result) 
-      {
-        j_result.push_back({
-          {"data", Utils::vec_to_str(insn.data)},
-          {"mnemonic", insn.mnemonic},
-          {"operands", insn.op_str}
-        });
-      }
-      return Base::Status::success(j_result);
-    }
-  });
-
   server.register_handler("get_threads", [&debugger](const std::string& params) -> Base::Status
   {
     std::vector<pid_t> threads;
