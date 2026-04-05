@@ -126,30 +126,6 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     }
   });
 
-  server.register_handler("allocate_memory", [&debugger](const std::string& params) -> Base::Status
-  {
-    nlohmann::json json_data = nlohmann::json::parse(params);
-    size_t size = json_data["size"];
-    int permissions = json_data["permissions"];
-
-    uint64_t allocated_address;
-    Base::Status s = debugger.allocate_memory(size, permissions, allocated_address);
-    if (s.is_fail()) return s;
-    else 
-    {
-      nlohmann::json result;
-      result["allocated_address"] = allocated_address;
-      return Base::Status::success(result);
-    }
-  });
-
-  server.register_handler("deallocate_memory", [&debugger](const std::string& params) -> Base::Status
-  {
-    nlohmann::json json_data = nlohmann::json::parse(params);
-    uint64_t address = json_data["address"];
-    return debugger.deallocate_memory(address);
-  });
-
   server.register_handler("read_registers", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);

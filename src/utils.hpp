@@ -23,7 +23,7 @@ namespace Utils
 {
 
 // ptrace 包装
-bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size, long* result = nullptr);
+bool ptrace_wrapper(int request, pid_t pid, void *address, void* data, size_t data_size = 0, long* result = nullptr);
 
 /**
  * @brief waitpid 系统调用的包装函数

@@ -96,18 +96,23 @@ Status DebuggerCore::attach(pid_t pid)
 
   for (const auto& tid : tids)
   {
-    if (!Utils::ptrace_wrapper(PTRACE_ATTACH, tid, nullptr, nullptr, 0))
+    // 检查状态
+    auto state = Process::parse_process_state(tid);
+    if (state != Process::ProcessState::STOPPED)
     {
-      LOG_WARNING("附加到线程 " + std::to_string(tid) + " 失败");
-      continue;
-    }
+      if (!Utils::ptrace_wrapper(PTRACE_ATTACH, tid, nullptr, nullptr, 0))
+      {
+        LOG_WARNING("附加到线程 " + std::to_string(tid) + " 失败");
+        continue;
+      }
 
-    int status;
-    pid_t wpid = Utils::waitpid_wrapper(tid, &status, __WALL);
-    if (wpid < 0)
-    {
-      LOG_WARNING("线程 " + std::to_string(tid) + " 未停止");
-      continue;
+      int status;
+      pid_t wpid = Utils::waitpid_wrapper(tid, &status, __WALL);
+      if (wpid < 0)
+      {
+        LOG_WARNING("线程 " + std::to_string(tid) + " 未停止");
+        continue;
+      }
     }
 
     if (!set_default_ptrace_options(tid))
@@ -122,16 +127,14 @@ Status DebuggerCore::attach(pid_t pid)
   if (attached_tids.empty())
     return Status::fail("没有附加到任何线程");
 
-  // 特殊处理, 主线程可能在调用 attach 前就已经被附加了, 如 launch 中 fork 的子进程 status 会继承父进程的 status
+  // 检查主线程
+  // 主线程可能在调用 attach 前就已经被附加了, 如 launch 中 fork 的子进程 status 会继承父进程的 status
   if (std::find(attached_tids.begin(), attached_tids.end(), pid) == attached_tids.end())
   {
     if (Process::parse_process_state(pid) != Process::ProcessState::STOPPED)
       return Status::fail("主线程没有被附加");
-    else  
-      attached_tids.push_back(pid);
   }
     
-
   m_pid = pid;
   m_current_tid = pid;
   m_tids = attached_tids;
@@ -679,8 +682,8 @@ Status DebuggerCore::resume_thread(pid_t tid)
     return Status::fail("resume_thread: 线程 {} 不存在", tid);
 
   int signo = 0;
-  if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr,
-  reinterpret_cast<void*>(signo), sizeof(signo)))
+  if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, 
+  reinterpret_cast<void*>(signo)))
     return Status::fail("resume_thread: PTRACE_CONT 失败 tid={}", tid);
 
   LOG_DEBUG("恢复线程成功: tid={}", tid);
@@ -857,130 +860,6 @@ Status DebuggerCore::write_memory(uint64_t address, const void* buf, size_t size
     return Status::success("write_memory 成功");
   else return Status::fail("write_memory 失败, errno: {}", strerror(errno));
 }
-
-Status DebuggerCore::syscall(std::vector<uint64_t> args, uint64_t& ret)
-{
-  // 必须处于暂停状态
-
-  if (args.size() < 1) 
-    return Status::fail("args.size() 为 0");
-
-  // 找到一个可执行, 私有的内存区域
-  auto memory_regions = memory_crl.get_memory_regions(m_pid);
-  uint64_t exe_addr = 0;
-  for (const auto& region : memory_regions) 
-  {
-    if (region.is_executable() && region.is_private()) 
-    {
-      exe_addr = region.start_address;
-      break;
-    }
-  }
-  if (exe_addr == 0) 
-    return Status::fail("未找到可用的内存区域");
-
-  // 获取并备份原始寄存器
-  auto gpr_opt = register_crl.get_all_gpr(m_current_tid);
-  if (!gpr_opt) 
-    return Status::fail("get_all_gpr 失败");
-  user_pt_regs backup = gpr_opt.value();
-
-  // 构造系统调用参数, ARM64 的系统调用约定是 x8 存放 syscall number, x0-x7 存放参数
-  gpr_opt.value().regs[8] = args[0];
-  for (int i = 1; i < args.size() && i < 8; ++i)
-    gpr_opt.value().regs[i - 1] = args[i];
-
-  if (!register_crl.set_all_gpr(m_current_tid, gpr_opt.value()))
-    return Status::fail("set_all_gpr 失败");
-
-  // 保存原始 exe_addr 处的指令 + 写入 SVC 指令
-  uint32_t orig_insn;
-  if (!memory_crl.read_memory(m_pid, exe_addr, &orig_insn, 4))
-    return Status::fail("读取原始指令失败");
-
-  // ARM64 svc 0 指令
-  const uint32_t SVC_INSN = 0xD4000001;
-  if (!memory_crl.write_memory(m_pid, exe_addr, &SVC_INSN, 4))
-    return Status::fail("写入 SVC 指令失败");
-
-  // 设置 pc 寄存器指向 exe_addr
-  if (!register_crl.set_gpr(m_current_tid, GPRegister::PC, exe_addr))
-    return Status::fail("设置 PC 寄存器失败");
-
-  // 单步执行 SVC 指令
-  Status s = step_over();
-  if (s.is_fail()) return s;
-
-  // 获取返回值
-  auto x0_opt = register_crl.get_gpr(m_current_tid, GPRegister::X0);
-  if (!x0_opt)
-    return Status::fail("get_gpr 失败");
-
-  ret = x0_opt.value();
-
-  // 恢复
-  memory_crl.write_memory(m_pid, exe_addr, &orig_insn, 4);
-  register_crl.set_all_gpr(m_current_tid, backup);
-
-  return Status::success("syscall 成功");
-}
-
-/*
-#define PROT_READ 0x1
-#define PROT_WRITE 0x2
-#define PROT_EXEC 0x4
-*/
-Status DebuggerCore::allocate_memory(size_t size, int permissions, uint64_t& allocated_address)
-{
-  uint64_t addr;
-  Status s = syscall({
-    (uint64_t)SYS_mmap,
-    0,
-    size,
-    (uint64_t)permissions,
-    (uint64_t)(MAP_ANONYMOUS | MAP_PRIVATE),
-    (uint64_t)-1,
-    0
-  }, addr);
-  if (s.is_fail()) return s;
-
-  if (addr > (uint64_t)-1)
-    return Status::fail("mmap 失败");
-
-  g_allocated_memory[addr] = size;
-  allocated_address = addr;
-  return Status::success("allocate_memory 成功, 地址: 0x{:x}", addr);
-}
-
-Status DebuggerCore::deallocate_memory(uint64_t address)
-{
-  auto it = g_allocated_memory.find(address);
-  if (it == g_allocated_memory.end())
-    return Status::fail("地址未分配: 0x{:x}", address);
-
-  size_t size = it->second;
-  uint64_t ret;
-  Status s = syscall({(uint64_t)SYS_munmap, address, size}, ret);
-  if (s.is_fail()) return s;
-  if (ret != 0)
-    return Status::fail("munmap 失败");
-
-  g_allocated_memory.erase(it);
-  return Status::success("释放内存成功");
-}
-
-Status DebuggerCore::get_memory_regions(std::vector<MemoryRegion>& result)
-{
-  auto r = memory_crl.get_memory_regions(m_pid);
-  if (r.empty())
-    return Status::fail("get_memory_regions 失败");
-  else 
-  {
-    result = r; 
-    return Status::success("get_memory_regions 成功");
-  }
-}
-
 
 }
 

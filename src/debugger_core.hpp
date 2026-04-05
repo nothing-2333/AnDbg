@@ -45,8 +45,7 @@ public:
   Base::Status read_memory(uint64_t address, void* buf, size_t size);
   Base::Status write_memory(uint64_t address, const void* buf, size_t size);
   Base::Status get_memory_regions(std::vector<MemoryRegion>& result);
-  Base::Status allocate_memory(size_t size, int permissions, uint64_t& allocated_address);
-  Base::Status deallocate_memory(uint64_t address);
+
   
   // 寄存器操作
   Base::Status write_registers(nlohmann::json json_data);
@@ -76,9 +75,6 @@ public:
   // // 符号解析
   // Base::Status symbol_to_address(const std::string& symbol_name, std::optional<uint64_t>& address);
   // Base::Status address_to_symbol(uint64_t address, std::optional<std::string>& symbol_name);
-
-  // 用 ptrace 执行 syscall 指令
-  Base::Status syscall(std::vector<uint64_t> args, uint64_t& ret);
 
 private:
   // 设置默认 ptrace 调试选项
