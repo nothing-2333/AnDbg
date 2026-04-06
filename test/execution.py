@@ -7,7 +7,6 @@ def main():
     parser.add_argument("-r", "--resume", action="store_true")
     parser.add_argument("-si", "--step_into", action="store_true")
     parser.add_argument("-so", "--step_over", action="store_true")
-    parser.add_argument("-p", "--pause", action="store_true")
     parser.add_argument("-a", "--attach", action="store_true")
     parser.add_argument("-l", "--launch", action="store_true")
     parser.add_argument("-d", "--detach", action="store_true")
@@ -34,9 +33,6 @@ def main():
         elif args.step_over:
             response = client.send_command("step_over")
 
-        elif args.pause:
-            response = client.send_command("pause")
-            
         elif args.attach:
             response = client.send_command("attach", {"target": "com.example.andbgtest"})
 

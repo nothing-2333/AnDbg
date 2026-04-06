@@ -35,9 +35,9 @@ def main():
             response = client.send_command("get_current_tid")
 
         else: 
-            response = "请指定操作: -d disassemble, -gt get_threads, -s switch_thread, -gp get_pid, -gct get_current_tid"
+            response = "请指定操作"
 
-        if response: print(f"服务器响应: {response}")
+        print(f"服务器响应: {response}")
         
     finally:
         client.disconnect()

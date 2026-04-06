@@ -64,11 +64,6 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   {
     return debugger.step_over();
   });
-
-  server.register_handler("pause", [&debugger](const std::string& params) -> Base::Status
-  {
-    return debugger.pause();
-  });
   
   server.register_handler("read_memory", [&debugger](const std::string& params) -> Base::Status
   {

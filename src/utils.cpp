@@ -64,11 +64,21 @@ pid_t waitpid_wrapper(pid_t pid, int* status, int __options)
       } 
       else if (WIFSIGNALED(*status)) 
       {
-        status_desc = fmt::format("信号终止, 信号: {}", WTERMSIG(*status));
+        status_desc = fmt::format("信号终止, 信号: {} {}",
+        WTERMSIG(*status),
+        WCOREDUMP(*status) ? "(core dumped)" : "");
       } 
       else if (WIFSTOPPED(*status)) 
       {
         status_desc = fmt::format("进程暂停, 信号: {}", WSTOPSIG(*status));
+      }
+      else if (WIFCONTINUED(*status)) 
+      {
+        status_desc = "进程已恢复运行";
+      }
+      else 
+      {
+        status_desc = fmt::format("未知状态 ({:#06x})", *status);
       }
     }
     LOG_DEBUG("waitpid 完成, 目标 PID: {}, 返回 PID: {}, 状态: {}", pid, wpid, status_desc);

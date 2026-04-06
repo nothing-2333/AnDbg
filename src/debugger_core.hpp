@@ -34,10 +34,9 @@ public:
   Base::Status resume_thread(pid_t tid);
   Base::Status resume();
   Base::Status step_into();
-  Base::Status hardware_step_into(intptr_t signo = 0);  // 硬件单步 ARM32, RISC-V, 龙芯不支持硬件单单步 
-  Base::Status software_step_into();                    // 软件单步
+  Base::Status hardware_step_into();  // 硬件单步 ARM32, RISC-V, 龙芯不支持硬件单单步 
+  Base::Status software_step_into();  // 软件单步
   Base::Status step_over();
-  Base::Status pause();
 
   // 内存操作
   Base::Status read_memory(uint64_t address, void* buf, size_t size);

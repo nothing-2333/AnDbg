@@ -128,7 +128,6 @@ Status DebuggerCore::attach(pid_t pid)
     return Status::fail("没有附加到任何线程");
 
   // 检查主线程
-  // 主线程可能在调用 attach 前就已经被附加了, 如 launch 中 fork 的子进程 status 会继承父进程的 status
   if (std::find(attached_tids.begin(), attached_tids.end(), pid) == attached_tids.end())
   {
     if (Process::parse_process_state(pid) != Process::ProcessState::STOPPED)
@@ -279,7 +278,7 @@ Status DebuggerCore::launch(const std::string& package_activity)
 
               // 此时 app 会继承 zygote 的 status 处于附加状态
               // LOG_DEBUG("app status: {}", Process::process_state_to_char(Process::parse_process_state(app_pid)));
-
+              
               // 下面会直接 detach
               // Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
               break;
@@ -345,19 +344,16 @@ Status DebuggerCore::detach()
     }
   }
 
-  if (!all_ok)
-    LOG_WARNING("部分线程分离失败, 成功: " + std::to_string(success_count) + "/" + std::to_string(m_tids.size()));
-
-  return all_ok ? Status("detach 成功", StatusType::SUCCESS) : Status("detach 失败", StatusType::FAIL);
+  return all_ok ? Status::success("detach 成功") : Status::fail("部分线程分离, 成功率: {} / {}", success_count, m_tids.size());
 }
 
 Status DebuggerCore::kill()
 {
   if (m_pid < 0) return Status::fail("m_pid 无效");
 
-  // 先 detach, 再 kill, 避免僵尸进程
-  // todo: 添加状态维护
-  detach();
+  if (Process::parse_process_state(m_pid) == Process::ProcessState::STOPPED)
+    detach();
+
   // 等待一下确保内核完成 detach, 否则 kill 会不生效
   // 不同的机型会不会有不同的表现(等待时间长短)?
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -681,11 +677,7 @@ Status DebuggerCore::resume_thread(pid_t tid)
   if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
     return Status::fail("resume_thread: 线程 {} 不存在", tid);
 
-  ::kill(m_pid, SIGCONT);
-
-  int signo = 0;
-  if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, 
-  reinterpret_cast<void*>(signo)))
+  if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, nullptr))
     return Status::fail("resume_thread: PTRACE_CONT 失败 tid={}", tid);
 
   LOG_DEBUG("恢复线程成功: tid={}", tid);
@@ -698,20 +690,25 @@ Status DebuggerCore::resume()
     return Status::fail("resume: 未附加任何进程");
 
   bool all_ok = true;
-  std::vector<pid_t> failed_tids;
+  int success_count = 0;
 
   for (const pid_t tid : m_tids)
   {
-    Status s = resume_thread(tid);
-    if (s.is_fail())
+    // 有可能线程已经被恢复了, 这里检查一下状态, 避免调用 ptrace 导致错误
+    if (Process::parse_process_state(tid) == Process::ProcessState::STOPPED)
     {
-      all_ok = false;
-      failed_tids.push_back(tid);
-      LOG_ERROR("恢复线程失败 tid={}: {}", tid, s.c_str());
+      Status s = resume_thread(tid);
+      if (s.is_fail())
+      {
+        all_ok = false;
+        LOG_ERROR("恢复 {} 线程失败: {}", tid, s.c_str());
+      }
+      else
+        success_count++;
     }
   }
   if (!all_ok) 
-    return Status::fail("resume: 部分线程恢复失败, 失败数量: {}", (int)failed_tids.size());
+    return Status::fail("部分线程恢复失败, 成功率: {} / {}", success_count, m_tids.size());
     
   LOG_DEBUG("恢复所有线程成功, pid={}", m_pid);
   return Status::success("resume 所有线程成功");
@@ -739,10 +736,9 @@ Status DebuggerCore::step_into()
   return Status::fail("单步执行失败: {}", sw_status.c_str());
 }
 
-Status DebuggerCore::hardware_step_into(intptr_t signo)
+Status DebuggerCore::hardware_step_into()
 {
-  if (!Utils::ptrace_wrapper(PTRACE_SINGLESTEP, m_current_tid, nullptr,
-  reinterpret_cast<void*>((signo)), sizeof(intptr_t)))
+  if (!Utils::ptrace_wrapper(PTRACE_SINGLESTEP, m_current_tid, nullptr, nullptr))
   {
     return Status::fail("hardware_step_into: PTRACE_SINGLESTEP 失败 tid = {} errno = {}", m_current_tid, strerror(errno));
   }
@@ -806,17 +802,6 @@ Status DebuggerCore::software_step_into()
 Status DebuggerCore::step_over()
 {
   return single_step_impl(SingleStepMode::STEP_OVER);
-}
-
-Status DebuggerCore::pause()
-{
-  if (m_pid <= 0) 
-    return Status::fail("pause: 未附加进程");
-
-  if (::kill(m_pid, SIGSTOP) == -1) 
-    return Status::fail("pause: 发送 SIGSTOP 失败");
-
-  return Status::success("pause 成功");
 }
 
 Status DebuggerCore::read_memory(uint64_t address, void* buf, size_t size)
