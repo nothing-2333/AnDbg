@@ -43,16 +43,14 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     return debugger.kill();
   });
 
-  server.register_handler("resume_thread", [&debugger](const std::string& params) -> Base::Status
-  {
-    nlohmann::json json_data = nlohmann::json::parse(params);
-    pid_t tid = json_data["tid"];
-    return debugger.resume_thread(tid);
-  });
-
   server.register_handler("resume", [&debugger](const std::string& params) -> Base::Status
   {
     return debugger.resume();
+  });
+
+  server.register_handler("pause", [&debugger](const std::string& params) -> Base::Status
+  {
+    return debugger.pause();
   });
 
   server.register_handler("step_into", [&debugger](const std::string& params) -> Base::Status

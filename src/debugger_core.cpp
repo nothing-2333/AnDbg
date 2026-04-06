@@ -70,18 +70,18 @@ Status DebuggerCore::get_current_tid(pid_t& tid)
 bool DebuggerCore::set_default_ptrace_options(pid_t pid)
 {
   long ptrace_options = 0;
-  // 跟踪进程退出事件: 被调试进程退出时会暂停, 调试器可获取返回码, 信号等
-  ptrace_options |= PTRACE_O_TRACEEXIT;
-  // 跟踪 clone() 事件, 被调试进程调用 clone() 创建线程或轻量级进程时会暂停, 调试器可获取新线程/进程的 pid
-  ptrace_options |= PTRACE_O_TRACECLONE;
-  // 跟踪 execve() 事件, 被调试进程执行 execve() 替换程序时会暂停, 新程序加载后但未执行前
-  ptrace_options |= PTRACE_O_TRACEEXEC;
-  // 跟踪 fork() 事件, 被调试进程调用 fork() 时会暂停, 调试器可通过 PTRACE_GETEVENTMSG 获取新子进程的 pid
-  ptrace_options |= PTRACE_O_TRACEFORK;
-  // 跟踪 vfork() 事件, 类似 TRACEFORK, 但针对 vfork(), 相比 fork(), vfork() 会暂停父进程直到子进程 exec 或退出
-  ptrace_options |= PTRACE_O_TRACEVFORK;
-  // 跟踪 vfork() 完成事件, vfork() 创建的子进程执行 exec 或退出后, 父进程恢复前会暂停
-  ptrace_options |= PTRACE_O_TRACEVFORKDONE;
+  // // 跟踪进程退出事件: 被调试进程退出时会暂停, 调试器可获取返回码, 信号等
+  // ptrace_options |= PTRACE_O_TRACEEXIT;
+  // // 跟踪 clone() 事件, 被调试进程调用 clone() 创建线程或轻量级进程时会暂停, 调试器可获取新线程/进程的 pid
+  // ptrace_options |= PTRACE_O_TRACECLONE;
+  // // 跟踪 execve() 事件, 被调试进程执行 execve() 替换程序时会暂停, 新程序加载后但未执行前
+  // ptrace_options |= PTRACE_O_TRACEEXEC;
+  // // 跟踪 fork() 事件, 被调试进程调用 fork() 时会暂停, 调试器可通过 PTRACE_GETEVENTMSG 获取新子进程的 pid
+  // ptrace_options |= PTRACE_O_TRACEFORK;
+  // // 跟踪 vfork() 事件, 类似 TRACEFORK, 但针对 vfork(), 相比 fork(), vfork() 会暂停父进程直到子进程 exec 或退出
+  // ptrace_options |= PTRACE_O_TRACEVFORK;
+  // // 跟踪 vfork() 完成事件, vfork() 创建的子进程执行 exec 或退出后, 父进程恢复前会暂停
+  // ptrace_options |= PTRACE_O_TRACEVFORKDONE;
 
   return Utils::ptrace_wrapper(PTRACE_SETOPTIONS, pid, nullptr, 
     reinterpret_cast<void*>(ptrace_options), sizeof(long));
@@ -98,6 +98,9 @@ Status DebuggerCore::attach(pid_t pid)
   {
     // 检查状态
     auto state = Process::parse_process_state(tid);
+    // SIGILL
+    // todo: 检查 status TracerPid 是不是调试器进程
+    // todo: 区别 T 与 t, State:  t (tracing stop), T (stopped)
     if (state != Process::ProcessState::STOPPED)
     {
       if (!Utils::ptrace_wrapper(PTRACE_ATTACH, tid, nullptr, nullptr, 0))
@@ -130,8 +133,7 @@ Status DebuggerCore::attach(pid_t pid)
   // 检查主线程
   if (std::find(attached_tids.begin(), attached_tids.end(), pid) == attached_tids.end())
   {
-    if (Process::parse_process_state(pid) != Process::ProcessState::STOPPED)
-      return Status::fail("主线程没有被附加");
+    return Status::fail("主线程没有被附加");
   }
     
   m_pid = pid;
@@ -275,11 +277,12 @@ Status DebuggerCore::launch(const std::string& package_activity)
             {
               app_pid = fork_pid;
               LOG_DEBUG("匹配到目标 app pid: {}", app_pid);
-
+              
               // 此时 app 会继承 zygote 的 status 处于附加状态
               // LOG_DEBUG("app status: {}", Process::process_state_to_char(Process::parse_process_state(app_pid)));
+              Utils::ptrace_wrapper(PTRACE_DETACH, app_pid, nullptr, nullptr);
               
-              // 下面会直接 detach
+              // 下面会直接 detach, zygote_pid 必须处于暂停状态, 不能 PTRACE_CONT
               // Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
               break;
             }
@@ -337,9 +340,14 @@ Status DebuggerCore::detach()
   {
     if (Utils::ptrace_wrapper(PTRACE_DETACH, tid, nullptr, nullptr, 0))
       success_count++;
-    else
+    else if (Process::parse_process_state(tid) == Process::ProcessState::ZOMBIE)
     {
-      LOG_WARNING("分离线程 " + std::to_string(tid) + " 失败");
+      success_count++;
+      LOG_DEBUG("产生僵尸进程 {}, 等待垃圾回收", tid);
+    }
+    else  
+    {
+      LOG_WARNING("分离线程 {} 失败", tid);
       all_ok = false;
     }
   }
@@ -680,7 +688,6 @@ Status DebuggerCore::resume_thread(pid_t tid)
   if (!Utils::ptrace_wrapper(PTRACE_CONT, tid, nullptr, nullptr))
     return Status::fail("resume_thread: PTRACE_CONT 失败 tid={}", tid);
 
-  LOG_DEBUG("恢复线程成功: tid={}", tid);
   return Status::success("resume_thread 成功");
 }
 
@@ -712,6 +719,48 @@ Status DebuggerCore::resume()
     
   LOG_DEBUG("恢复所有线程成功, pid={}", m_pid);
   return Status::success("resume 所有线程成功");
+}
+
+Status DebuggerCore::pause_thread(pid_t tid)
+{
+  // 检查线程是否存在
+  if (std::find(m_tids.begin(), m_tids.end(), tid) == m_tids.end())
+    return Status::fail("线程 {} 不存在", tid);
+
+  if (::kill(tid, SIGSTOP) != 0)
+    return Status::fail("pause_thread 失败 tid: {}, errno({}): {}", tid, errno, strerror(errno));
+
+  return Status::success("pause_thread 成功");
+}
+
+Status DebuggerCore::pause()
+{
+  if (m_pid <= 0 || m_tids.empty())
+    return Status::fail("pause: 未附加任何进程");
+
+  bool all_ok = true;
+  int success_count = 0;
+
+  for (const pid_t tid : m_tids)
+  {
+    if (Process::parse_process_state(tid) != Process::ProcessState::STOPPED)
+    {
+      Status s = pause_thread(tid);
+      if (s.is_fail())
+      {
+        all_ok = false;
+        LOG_ERROR("暂停 {} 线程失败: {}", tid, s.c_str());
+      }
+      else
+        success_count++;
+    }
+  }
+
+  if (!all_ok) 
+    return Status::fail("部分线程暂停失败, 成功率: {} / {}", success_count, m_tids.size());
+    
+  LOG_DEBUG("暂停所有线程成功, pid={}", m_pid);
+  return Status::success("pause 所有线程成功");
 }
 
 Status DebuggerCore::step_into()

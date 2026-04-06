@@ -33,6 +33,8 @@ public:
   Base::Status kill();
   Base::Status resume_thread(pid_t tid);
   Base::Status resume();
+  Base::Status pause_thread(pid_t tid);
+  Base::Status pause();
   Base::Status step_into();
   Base::Status hardware_step_into();  // 硬件单步 ARM32, RISC-V, 龙芯不支持硬件单单步 
   Base::Status software_step_into();  // 软件单步

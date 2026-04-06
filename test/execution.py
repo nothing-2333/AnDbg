@@ -5,6 +5,7 @@ import argparse
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-r", "--resume", action="store_true")
+    parser.add_argument("-p", "--pause", action="store_true")
     parser.add_argument("-si", "--step_into", action="store_true")
     parser.add_argument("-so", "--step_over", action="store_true")
     parser.add_argument("-a", "--attach", action="store_true")
@@ -26,7 +27,10 @@ def main():
     try:
         if args.resume:
             response = client.send_command("resume")
-
+            
+        elif args.pause:
+            response = client.send_command("pause")
+            
         elif args.step_into:
             response = client.send_command("step_into")
 
