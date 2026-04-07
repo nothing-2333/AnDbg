@@ -17,7 +17,8 @@ namespace Core
 {
 
 // 通用寄存器名称映射
-const char* RegisterControl::gpr_names[] = {
+const char* RegisterControl::gpr_names[] = 
+{
   "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
   "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
   "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
@@ -28,7 +29,8 @@ const char* RegisterControl::gpr_names[] = {
 };
 
 // 浮点寄存器名称映射
-const char* RegisterControl::fpr_names[] = {
+const char* RegisterControl::fpr_names[] = 
+{
   "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
   "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", 
   "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
@@ -38,7 +40,8 @@ const char* RegisterControl::fpr_names[] = {
 };
 
 // 调试寄存器名称映射
-const char* RegisterControl::dbg_names[] = {
+const char* RegisterControl::dbg_names[] = 
+{
   "dbg0", "dbg1", "dbg2", "dbg3", "dbg4", "dbg5", "dbg6", "dbg7",
   "dbg8", "dbg9", "dbg10", "dbg11", "dbg12", "dbg13", "dbg14", "dbg15",
   "dbg_info",

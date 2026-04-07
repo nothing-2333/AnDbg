@@ -7,6 +7,7 @@
 #include "assembly.hpp"
 #include "log.hpp"
 
+// todo: 去除这个模块, 在 gui 端反汇编等
 
 namespace Assembly 
 {
