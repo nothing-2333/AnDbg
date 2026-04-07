@@ -123,6 +123,7 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     }
   });
 
+  // 寄存器的返回值必须是字符串, 因为要支持 128 位寄存器, 直接返回数字会有问题
   server.register_handler("read_registers", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);

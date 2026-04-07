@@ -71,7 +71,7 @@ Status DebuggerCore::get_current_tid(pid_t& tid)
 
 bool DebuggerCore::set_default_ptrace_options(pid_t pid)
 {
-  // todo: 自动对一些事件做处理, 比如退出事件自动 detach, 自动跟踪 clone/fork/vfork 子进程等
+  // todo: 退出事件自动 detach
 
   long ptrace_options = 0;
   // // 跟踪进程退出事件: 被调试进程退出时会暂停, 调试器可获取返回码, 信号等
@@ -380,7 +380,6 @@ Status DebuggerCore::kill()
   return Status::success("kill 成功");
 }
 
-// todo: 寄存器返回值改成数字
 Status DebuggerCore::write_registers(nlohmann::json json_data)
 {
   // todo: 需要加上 DBG 吗?
