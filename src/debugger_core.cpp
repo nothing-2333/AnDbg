@@ -27,6 +27,8 @@ namespace Core
 DebuggerCore::DebuggerCore() : register_crl(RegisterControl::get_instance()), 
 disassembly_crl(Assembly::DisassemblyControl::get_instance()),
 memory_crl(MemoryControl::get_instance()),
+proc_helper(Process::PROCHelper::get_instance()),
+ps_helper(Process::PSHelper::get_instance()),
 breakpoint_manager(BreakpointManager())
 {
   m_pid = -1;
@@ -69,6 +71,8 @@ Status DebuggerCore::get_current_tid(pid_t& tid)
 
 bool DebuggerCore::set_default_ptrace_options(pid_t pid)
 {
+  // todo: 自动对一些事件做处理, 比如退出事件自动 detach, 自动跟踪 clone/fork/vfork 子进程等
+
   long ptrace_options = 0;
   // // 跟踪进程退出事件: 被调试进程退出时会暂停, 调试器可获取返回码, 信号等
   // ptrace_options |= PTRACE_O_TRACEEXIT;
@@ -89,7 +93,7 @@ bool DebuggerCore::set_default_ptrace_options(pid_t pid)
 
 Status DebuggerCore::attach(pid_t pid)
 {
-  auto tids = Process::get_thread_ids(pid);
+  auto tids = proc_helper.get_thread_ids(pid);
   if (tids.empty()) return Status::fail("获取线程 id 有误");
 
   std::vector<pid_t> attached_tids;
@@ -97,11 +101,9 @@ Status DebuggerCore::attach(pid_t pid)
   for (const auto& tid : tids)
   {
     // 检查状态
-    auto state = Process::parse_process_state(tid);
-    // SIGILL
-    // todo: 检查 status TracerPid 是不是调试器进程
-    // todo: 区别 T 与 t, State:  t (tracing stop), T (stopped)
-    if (state != Process::ProcessState::STOPPED)
+    auto state = proc_helper.get_process_state(tid);
+
+    if (state != Process::ProcessState::TRACING_STOP)
     {
       if (!Utils::ptrace_wrapper(PTRACE_ATTACH, tid, nullptr, nullptr, 0))
       {
@@ -116,6 +118,11 @@ Status DebuggerCore::attach(pid_t pid)
         LOG_WARNING("线程 " + std::to_string(tid) + " 未停止");
         continue;
       }
+    }
+    else  
+    {
+      // todo: 检查 status TracerPid 是不是调试器进程
+
     }
 
     if (!set_default_ptrace_options(tid))
@@ -145,7 +152,7 @@ Status DebuggerCore::attach(pid_t pid)
 
 Status DebuggerCore::attach(const std::string& package_name)
 {
-  const auto& match_pids = Process::find_pid_by_package_name(package_name);
+  const auto& match_pids = proc_helper.find_pid_by_package_name(package_name);
   if (match_pids.size() > 1)
     LOG_WARNING("attach 是发现报名对应多个 pid");
 
@@ -169,7 +176,6 @@ Status DebuggerCore::launch(const std::string& package_activity)
   std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
   // 找到 zygote 进程
-  Process::PSHelper ps_helper;
   std::vector<pid_t> zygote_pids = ps_helper.find_pid_by_process_name("zygote64", Process::PSHelper::MatchMode::EXACT, true);
   if (zygote_pids.empty()) 
     zygote_pids = ps_helper.find_pid_by_process_name("zygote", Process::PSHelper::MatchMode::EXACT, true);
@@ -260,7 +266,7 @@ Status DebuggerCore::launch(const std::string& package_activity)
 
             LOG_DEBUG("捕获到 zygote fork 出的子进程 PID: {}", fork_pid);
 
-            std::optional<std::string> child_name = Process::find_package_name_by_pid(fork_pid);
+            std::optional<std::string> child_name = proc_helper.find_package_name_by_pid(fork_pid);
             if (!child_name) 
             {
               Utils::ptrace_wrapper(PTRACE_CONT, zygote_pid, nullptr, nullptr, 0);
@@ -340,7 +346,7 @@ Status DebuggerCore::detach()
   {
     if (Utils::ptrace_wrapper(PTRACE_DETACH, tid, nullptr, nullptr, 0))
       success_count++;
-    else if (Process::parse_process_state(tid) == Process::ProcessState::ZOMBIE)
+    else if (proc_helper.get_process_state(tid) == Process::ProcessState::ZOMBIE)
     {
       success_count++;
       LOG_DEBUG("产生僵尸进程 {}, 等待垃圾回收", tid);
@@ -359,7 +365,7 @@ Status DebuggerCore::kill()
 {
   if (m_pid < 0) return Status::fail("m_pid 无效");
 
-  if (Process::parse_process_state(m_pid) == Process::ProcessState::STOPPED)
+  if (proc_helper.get_process_state(m_pid) == Process::ProcessState::TRACING_STOP)
     detach();
 
   // 等待一下确保内核完成 detach, 否则 kill 会不生效
@@ -374,6 +380,7 @@ Status DebuggerCore::kill()
   return Status::success("kill 成功");
 }
 
+// todo: 寄存器返回值改成数字
 Status DebuggerCore::write_registers(nlohmann::json json_data)
 {
   // todo: 需要加上 DBG 吗?
@@ -702,7 +709,7 @@ Status DebuggerCore::resume()
   for (const pid_t tid : m_tids)
   {
     // 有可能线程已经被恢复了, 这里检查一下状态, 避免调用 ptrace 导致错误
-    if (Process::parse_process_state(tid) == Process::ProcessState::STOPPED)
+    if (proc_helper.get_process_state(tid) == Process::ProcessState::TRACING_STOP)
     {
       Status s = resume_thread(tid);
       if (s.is_fail())
@@ -717,7 +724,7 @@ Status DebuggerCore::resume()
   if (!all_ok) 
     return Status::fail("部分线程恢复失败, 成功率: {} / {}", success_count, m_tids.size());
     
-  LOG_DEBUG("恢复所有线程成功, pid={}", m_pid);
+  LOG_DEBUG("恢复所有线程成功");
   return Status::success("resume 所有线程成功");
 }
 
@@ -743,7 +750,7 @@ Status DebuggerCore::pause()
 
   for (const pid_t tid : m_tids)
   {
-    if (Process::parse_process_state(tid) != Process::ProcessState::STOPPED)
+    if (proc_helper.get_process_state(tid) != Process::ProcessState::TRACING_STOP)
     {
       Status s = pause_thread(tid);
       if (s.is_fail())

@@ -9,6 +9,7 @@
 #include "assembly.hpp"
 #include "memory_control.hpp"
 #include "breakpoint_manager.hpp"
+#include "process.hpp"
 
 namespace Core 
 {
@@ -95,6 +96,8 @@ private:
   RegisterControl& register_crl;
   Assembly::DisassemblyControl& disassembly_crl;
   MemoryControl& memory_crl;
+  Process::PROCHelper& proc_helper;
+  Process::PSHelper& ps_helper;
 
   BreakpointManager breakpoint_manager;
 };

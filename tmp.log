@@ -1,0 +1,162 @@
+[DEBUG] [rpc_server.cpp:163] 服务启动
+[DEBUG] [rpc_server.cpp:199] 客户端连接: 127.0.0.1:<47871>
+[DEBUG] [rpc_server.cpp:230] 收到命令: launch
+[DEBUG] [debugger_core.cpp:174] 关闭旧进程完成, 返回值: 0
+[DEBUG] [debugger_core.cpp:186] 找到 zygote 进程 PID: 878
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 878, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 878, 返回 PID: 878, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 878, address: 0x0, data: 0x3, data_size: 0, ret: 0)
+[DEBUG] [debugger_core.cpp:210] 已附加到 zygote 进程, 开始监控 fork 调用
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 878, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [debugger_core.cpp:214] 已恢复 zygote 运行, 等待 app 启动触发 fork 事件
+[DEBUG] [debugger_core.cpp:218] 执行启动 app 命令: am start -n com.example.andbgtest/com.example.andbgtest.MainActivity
+Starting: Intent { cmp=com.example.andbgtest/.MainActivity }
+[DEBUG] [utils.cpp:53] waitpid 非阻塞返回: 目标 PID: -1 仍在运行
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: -1, 返回 PID: 10288, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10288, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: -1, 返回 PID: 878, 状态: 进程暂停, 信号: 5
+[DEBUG] [debugger_core.cpp:260] 捕获 zygote fork 事件, status: 66943
+[DEBUG] [utils.cpp:28] ptrace(request: 16897, pid: 878, address: 0x0, data: 0x7fe8146f30, data_size: 4, ret: 0)
+[DEBUG] [debugger_core.cpp:267] 捕获到 zygote fork 出的子进程 PID: 10288
+[DEBUG] [process.cpp:253] 读取到的 cmdline: com.example.andbgtest                                                                              
+[DEBUG] [debugger_core.cpp:275] fork 出的进程名称: com.example.andbgtest
+[DEBUG] [debugger_core.cpp:285] 匹配到目标 app pid: 10288
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10288, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 878, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10288, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10288, 返回 PID: 10288, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10288, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10291, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10291, 返回 PID: 10291, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10291, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10292, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10292, 返回 PID: 10292, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10292, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10293, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10293, 返回 PID: 10293, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10293, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10294, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10294, 返回 PID: 10294, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10294, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10295, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10295, 返回 PID: 10295, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10295, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10296, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10296, 返回 PID: 10296, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10296, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10297, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10297, 返回 PID: 10297, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10297, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10298, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10298, 返回 PID: 10298, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10298, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10299, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10299, 返回 PID: 10299, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10299, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10300, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10300, 返回 PID: 10300, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10300, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10301, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10301, 返回 PID: 10301, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10301, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10302, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10302, 返回 PID: 10302, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10302, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10303, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10303, 返回 PID: 10303, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10303, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10304, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10304, 返回 PID: 10304, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10304, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10305, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10305, 返回 PID: 10305, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10305, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10307, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10307, 返回 PID: 10307, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10307, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10308, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10308, 返回 PID: 10308, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10308, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10309, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10309, 返回 PID: 10309, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10309, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10310, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10310, 返回 PID: 10310, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10310, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 16, pid: 10311, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:84] waitpid 完成, 目标 PID: 10311, 返回 PID: 10311, 状态: 进程暂停, 信号: 19
+[DEBUG] [utils.cpp:28] ptrace(request: 16896, pid: 10311, address: 0x0, data: 0x0, data_size: 8, ret: 0)
+[DEBUG] [rpc_server.cpp:253] 命令 launch 处理完成
+[DEBUG] [rpc_server.cpp:289] 客户端关闭连接
+[WARNING] [rpc_server.cpp:224] 读取消息为空, 读取失败或连接关闭
+[DEBUG] [rpc_server.cpp:207] 客户端已断开连接
+[DEBUG] [rpc_server.cpp:199] 客户端连接: 127.0.0.1:<48955>
+[DEBUG] [rpc_server.cpp:230] 收到命令: resume
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10288, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10291, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10292, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10293, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10294, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10295, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10296, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10297, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10298, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10299, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10300, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10301, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10302, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10303, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10304, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10305, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10307, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10308, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10309, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10310, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 7, pid: 10311, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [debugger_core.cpp:727] 恢复所有线程成功, pid=10288
+[DEBUG] [rpc_server.cpp:253] 命令 resume 处理完成
+[DEBUG] [rpc_server.cpp:289] 客户端关闭连接
+[WARNING] [rpc_server.cpp:224] 读取消息为空, 读取失败或连接关闭
+[DEBUG] [rpc_server.cpp:207] 客户端已断开连接
+[DEBUG] [rpc_server.cpp:199] 客户端连接: 127.0.0.1:<49175>
+[DEBUG] [rpc_server.cpp:230] 收到命令: pause
+[DEBUG] [debugger_core.cpp:769] 暂停所有线程成功, pid=10288
+[DEBUG] [rpc_server.cpp:253] 命令 pause 处理完成
+[DEBUG] [rpc_server.cpp:289] 客户端关闭连接
+[WARNING] [rpc_server.cpp:224] 读取消息为空, 读取失败或连接关闭
+[DEBUG] [rpc_server.cpp:207] 客户端已断开连接
+[DEBUG] [rpc_server.cpp:199] 客户端连接: 127.0.0.1:<34481>
+[DEBUG] [rpc_server.cpp:230] 收到命令: kill
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10288, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10291, address: 0x0, data: 0x0, data_size: 0, ret: -1)
+[ERROR] [utils.cpp:36] ptrace 调用失败, errno(3): No such process
+[DEBUG] [debugger_core.cpp:352] 产生僵尸进程 10291, 等待垃圾回收
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10292, address: 0x0, data: 0x0, data_size: 0, ret: -1)
+[ERROR] [utils.cpp:36] ptrace 调用失败, errno(3): No such process
+[DEBUG] [debugger_core.cpp:352] 产生僵尸进程 10292, 等待垃圾回收
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10293, address: 0x0, data: 0x0, data_size: 0, ret: -1)
+[ERROR] [utils.cpp:36] ptrace 调用失败, errno(3): No such process
+[DEBUG] [debugger_core.cpp:352] 产生僵尸进程 10293, 等待垃圾回收
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10294, address: 0x0, data: 0x0, data_size: 0, ret: -1)
+[ERROR] [utils.cpp:36] ptrace 调用失败, errno(3): No such process
+[DEBUG] [debugger_core.cpp:352] 产生僵尸进程 10294, 等待垃圾回收
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10295, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10296, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10297, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10298, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10299, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10300, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10301, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10302, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10303, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10304, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10305, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10307, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10308, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10309, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10310, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [utils.cpp:28] ptrace(request: 17, pid: 10311, address: 0x0, data: 0x0, data_size: 0, ret: 0)
+[DEBUG] [rpc_server.cpp:253] 命令 kill 处理完成
+[DEBUG] [rpc_server.cpp:289] 客户端关闭连接
+[WARNING] [rpc_server.cpp:224] 读取消息为空, 读取失败或连接关闭
+[DEBUG] [rpc_server.cpp:207] 客户端已断开连接

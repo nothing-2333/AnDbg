@@ -27,14 +27,15 @@ public:
   File& operator=(const File&) = delete;
   
   // 允许移动
-  File(File&& other) noexcept;
-  File& operator=(File&& other) noexcept;
+  File(File&& other) noexcept = default;
+  File& operator=(File&& other) noexcept = default;
 
-  ~File();
+  // 用默认的就可以了, 资源会自动释放
+  ~File() = default;
 
   // 打开文件或目录
-  static std::optional<File> open(const std::string& path);
   static std::optional<File> open(const std::string& path, bool is_directory);
+  static std::optional<File> open(const std::string& path);
 
   // 检查是否是目录类型
   static bool check_directory_type(const std::string& path);

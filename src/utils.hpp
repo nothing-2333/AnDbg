@@ -224,5 +224,8 @@ std::optional<std::string> num_to_hex_str(T num, bool with_prefix = true)
   return hex_str;
 }
 
+// 去除收尾空白字符
+std::string trim(const std::string& s);
+
 }
 

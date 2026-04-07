@@ -159,4 +159,19 @@ std::vector<std::string> split_by_space(const std::string& s)
   return tokens;
 }
 
+std::string trim(const std::string& s)
+{
+  size_t start = 0;
+  // 从前往后找第一个非空白字符
+  while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start])))
+    start++;
+
+  size_t end = s.size();
+  // 从后往前找第一个非空白字符
+  while (end > start && std::isspace(static_cast<unsigned char>(s[end - 1])))
+    end--;
+
+  return s.substr(start, end - start);
+}
+
 }

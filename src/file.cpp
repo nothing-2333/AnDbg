@@ -7,6 +7,15 @@
 
 namespace Base 
 {
+std::optional<File> File::open(const std::string& path, bool is_directory)
+{
+  return File(path, is_directory);
+}
+
+std::optional<File> File::open(const std::string& path)
+{
+  return open(path, check_directory_type(path));
+}
 
 File::File(const std::string& path) : m_path(path), m_is_directory(check_directory_type(path)), m_dir_handle(nullptr, closedir)
 {

@@ -1,245 +1,175 @@
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <sys/stat.h>
 #include <filesystem>
 #include <algorithm>
+#include <vector>
 
 #include "process.hpp"
+#include "file.hpp"
 #include "log.hpp"
+#include "status.hpp"
 #include "utils.hpp"
+
 
 namespace Process 
 {
 
-std::string ProcFile::get_filename(ProcFileType type) 
+namespace  
+{
+
+// 文件类型到文件名的映射
+const std::unordered_map<ProcFileType, std::string> FILE_TYPE_TO_NAME = 
+{
+  {ProcFileType::ATTR, "attr"},
+  {ProcFileType::AUTOGROUP, "autogroup"},
+  {ProcFileType::CGROUP, "cgroup"},
+  {ProcFileType::CLEAR_REFS, "clear_refs"},
+  {ProcFileType::CMDLINE, "cmdline"},
+  {ProcFileType::COMM, "comm"},
+  {ProcFileType::COREDUMP_FILTER, "coredump_filter"},
+  {ProcFileType::CPUSET, "cpuset"},
+  {ProcFileType::CWD, "cwd"},
+  {ProcFileType::ENVIRON, "environ"},
+  {ProcFileType::EXE, "exe"},
+  {ProcFileType::FD, "fd"},
+  {ProcFileType::FDINFO, "fdinfo"},
+  {ProcFileType::IO, "io"},
+  {ProcFileType::LIMITS, "limits"},
+  {ProcFileType::MAP_FILES, "map_files"},
+  {ProcFileType::MAPS, "maps"},
+  {ProcFileType::MEM, "mem"},
+  {ProcFileType::MOUNTINFO, "mountinfo"},
+  {ProcFileType::MOUNTS, "mounts"},
+  {ProcFileType::MOUNTSTATS, "mountstats"},
+  {ProcFileType::NET, "net"},
+  {ProcFileType::NS, "ns"},
+  {ProcFileType::NUMA_MAPS, "numa_maps"},
+  {ProcFileType::OOM_SCORE, "oom_score"},
+  {ProcFileType::OOM_SCORE_ADJ, "oom_score_adj"},
+  {ProcFileType::PAGEMAP, "pagemap"},
+  {ProcFileType::PERSONALITY, "personality"},
+  {ProcFileType::PROJID_MAP, "projid_map"},
+  {ProcFileType::ROOT, "root"},
+  {ProcFileType::SECCOMP, "seccomp"},
+  {ProcFileType::SETGROUPS, "setgroups"},
+  {ProcFileType::SMAPS, "smaps"},
+  {ProcFileType::STACK, "stack"},
+  {ProcFileType::STAT, "stat"},
+  {ProcFileType::STATM, "statm"},
+  {ProcFileType::STATUS, "status"},
+  {ProcFileType::SYSCALL, "syscall"},
+  {ProcFileType::TASK, "task"},
+  {ProcFileType::TIMERS, "timers"},
+  {ProcFileType::TIMERSLACK_NS, "timerslack_ns"},
+  {ProcFileType::UID_MAP, "uid_map"},
+  {ProcFileType::WCHAN, "wchan"},
+};
+
+const std::unordered_map<char, ProcessState> CHAR_TO_STATE = 
+{
+  {'R', ProcessState::RUNNING},
+  {'S', ProcessState::SLEEPING},
+  {'D', ProcessState::DISK_SLEEP},
+  {'T', ProcessState::STOPPED},
+  {'t', ProcessState::TRACING_STOP},
+  {'X', ProcessState::DEAD},
+  {'Z', ProcessState::ZOMBIE},
+  {'P', ProcessState::PARKED},
+  {'I', ProcessState::IDLE}
+};
+
+
+const std::unordered_map<ProcessState, char> STATE_TO_CHAR = 
+{
+  {ProcessState::RUNNING,      'R'},
+  {ProcessState::SLEEPING,     'S'},
+  {ProcessState::DISK_SLEEP,   'D'},
+  {ProcessState::STOPPED,      'T'},
+  {ProcessState::TRACING_STOP, 't'},
+  {ProcessState::DEAD,         'X'},
+  {ProcessState::ZOMBIE,       'Z'},
+  {ProcessState::PARKED,       'P'},
+  {ProcessState::IDLE,         'I'}
+};
+}
+
+const char PROCHelper::process_state_to_char(ProcessState state)
+{
+  auto it = STATE_TO_CHAR.find(state);
+  return (it != STATE_TO_CHAR.end()) ? it->second : '?';
+}
+
+ProcessState PROCHelper::char_to_process_state(const char state)
+{
+  auto it = CHAR_TO_STATE.find(state);
+  return (it != CHAR_TO_STATE.end()) ? it->second : ProcessState::UNKNOWN;
+}
+
+std::string PROCHelper::proc_file_type_to_string(ProcFileType type)
 {
   auto it = FILE_TYPE_TO_NAME.find(type);
   if (it == FILE_TYPE_TO_NAME.end()) 
   {
-    LOG_ERROR("未知的 /proc 文件类型: {}", static_cast<int>(type));
+    LOG_ERROR("FILE_TYPE_TO_NAME 没有将 ProcFileType 中的 {} 映射到文件名", static_cast<int>(type));
     return "";
   }
   return it->second;
 }
 
-bool ProcFile::is_directory_type(ProcFileType type) 
+std::vector<pid_t> PROCHelper::get_thread_ids(pid_t pid)
 {
-  return DIRECTORY_TYPES.find(type) != DIRECTORY_TYPES.end();
-}
-
-bool ProcFile::check_directory_type(const std::string& path)
-{
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) 
+  std::optional<Base::File> task_file = Base::File::open(fmt::format("/proc/{}/task", pid));
+  if (!task_file || !task_file->is_open()) 
   {
-    LOG_DEBUG("检查路径[{}]是否为目录失败: {}", path, strerror(errno));
-    return false;
+    LOG_ERROR("解析进程状态失败：无法打开/proc/{}/task", pid);
+    return {};
   }
-  return S_ISDIR(st.st_mode);
-}
 
-std::string ProcFile::build_path(pid_t pid, ProcFileType type) 
-{
-  if (pid <= 0) 
+  std::vector<pid_t> tids;
+  std::vector<dirent*> entrys = task_file.value().list_entries();
+
+  for (const auto entry : entrys)
   {
-    LOG_ERROR("无效的进程ID: {}", pid);
-    return "";
-  }
-    
-  std::string filename = get_filename(type);
-  if (filename.empty()) return "";
-
-  return fmt::format("/proc/{}/{}", pid, filename);
-}
-
-std::optional<ProcFile> ProcFile::open(pid_t pid, ProcFileType type) 
-{
-  std::string path = build_path(pid, type);
-  if (path.empty()) return std::nullopt;
-  
-  ProcFile proc_file(path, is_directory_type(type));
-  if (!proc_file.is_open()) return std::nullopt;
-  return proc_file;
-}
-
-std::optional<ProcFile> ProcFile::open(const std::string& path)
-{
-  ProcFile proc_file(path);
-  if (!proc_file.is_open()) return std::nullopt;
-  return proc_file;
-}
-
-void ProcFile::open_path(const std::string& path, bool is_directory)
-{
-  if (is_directory)
-  {
-    DIR* dir = opendir(path.c_str());
-    if (!dir) 
+    if (entry->d_type == DT_DIR)
     {
-      LOG_ERROR("无法打开目录 {}: {}", path, strerror(errno));
-      return;
-    }
-    m_dir_handle.reset(dir);
-  }
-  else 
-  {
-    m_file_stream.open(path);
-    if (!m_file_stream.is_open())
-    {
-      LOG_ERROR("无法打开文件 {}: {}", path, strerror(errno));
-      return;
+      // 检查目录是否全为数字
+      bool is_numeric = true;
+      for (int i = 0; entry->d_name[i] != '\0'; ++i)
+      {
+        if (!isdigit(entry->d_name[i]))
+        {
+          is_numeric = false;
+          break;
+        }
+      }
+
+      if (is_numeric && strlen(entry->d_name) > 0)
+      {
+        tids.push_back(static_cast<pid_t>(std::stoi(entry->d_name)));
+      }
     }
   }
+
+  // 编译器会自动进行 RVO(返回值优化), 加不加 std::move 都行
+  return std::move(tids); 
 }
 
-ProcFile::ProcFile(const std::string& path, bool is_directory) : m_path(path), m_is_directory(is_directory), m_dir_handle(nullptr, closedir)
+std::vector<pid_t> PROCHelper::find_pid_by_package_name(const std::string& package_name)
 {
-  open_path(path, is_directory);
-}
-
-ProcFile::ProcFile(const std::string& path) : m_path(path), m_is_directory(check_directory_type(path)), m_dir_handle(nullptr, closedir)
-{
-  open_path(path, m_is_directory);
-}
-
-ProcFile::ProcFile(ProcFile&& other) noexcept
-  : m_path(std::move(other.m_path))
-  , m_is_directory(other.m_is_directory)
-  , m_file_stream(std::move(other.m_file_stream))
-  , m_dir_handle(std::move(other.m_dir_handle))
-{
-  other.m_is_directory = false;
-}
-
-ProcFile& ProcFile::operator=(ProcFile&& other) noexcept 
-{
-  if (this != &other) 
-  {
-    m_path = std::move(other.m_path);
-    m_is_directory = other.m_is_directory;
-    m_file_stream = std::move(other.m_file_stream);
-    m_dir_handle = std::move(other.m_dir_handle);
-    other.m_is_directory = false;
-  }
-  return *this;
-}
-
-bool ProcFile::is_open() const
-{
-  if (m_is_directory)
-    return m_dir_handle != nullptr;
-  else 
-   return m_file_stream.is_open();
-}
-
-bool ProcFile::is_directory() const 
-{
-  return m_is_directory;
-}
-
-std::string ProcFile::read_all() {
-  if (m_is_directory || !m_file_stream.is_open()) 
-  {
-    LOG_ERROR("无法从目录或已关闭的文件流读取内容");
-    return "";
-  }
-    
-  // 保存当前位置
-  std::streampos original_pos = m_file_stream.tellg();
-  m_file_stream.seekg(0, std::ios::beg);
-    
-  std::string content;
-  char ch;
-  while (m_file_stream.get(ch)) 
-    content.push_back(ch);
-    
-  // 恢复位置
-  m_file_stream.seekg(original_pos);
-    
-  return content;
-}
-
-std::vector<std::string> ProcFile::read_lines() {
-  std::vector<std::string> lines;
-  if (m_is_directory || !m_file_stream.is_open()) 
-  {
-    LOG_ERROR("无法从目录或已关闭的文件流读取内容");
-    return lines;
-  }
-
-  std::streampos original_pos = m_file_stream.tellg();
-  m_file_stream.seekg(0, std::ios::beg);
-    
-  std::string line;
-  while (std::getline(m_file_stream, line)) 
-  {
-    lines.push_back(std::move(line));
-  }
-    
-  m_file_stream.seekg(original_pos);
-  return lines;
-}
-
-std::string ProcFile::read_line() {
-  if (m_is_directory || !m_file_stream.is_open()) 
-  {
-    LOG_ERROR("无法从目录或已关闭的文件流读取内容");
-    return "";
-  }
-    
-  std::string line;
-  if (std::getline(m_file_stream, line)) return line;
-  else return "";
-}
-
-std::ifstream& ProcFile::file_stream() 
-{
-    return m_file_stream;
-}
-
-
-std::vector<dirent*> ProcFile::list_entries() {
-  std::vector<dirent*> entries;
-  if (!m_is_directory || !m_dir_handle) 
-  {
-    LOG_ERROR("无法从非目录或已关闭的目录句柄读取内容");
-    return entries;
-  }
-
-  rewinddir(m_dir_handle.get());
-    
-  dirent* entry;
-  while ((entry = readdir(m_dir_handle.get())) != nullptr) 
-  {
-    // 跳过 . 和 ..
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) 
-    {
-      continue;
-    }
-    entries.emplace_back(entry);
-  }
-    
-  return entries;
-}
-
-DIR* ProcFile::directory_handle() 
-{
-  return m_dir_handle.get();
-}
-
-std::vector<pid_t> find_pid_by_package_name(const std::string& package_name)
-{
-  std::vector<pid_t> match_pids;
   if (package_name.empty()) 
   {
     LOG_ERROR("包名不能为空");
-    return match_pids;
+    return {};
   }
 
+  std::vector<pid_t> match_pids;
+
   // 遍历 /proc 下所有条目
-  auto proc_root = ProcFile::open("/proc");
+  auto proc_root = Base::File::open("/proc");
   if (!proc_root || !proc_root->is_open() || !proc_root->is_directory()) 
   {
     LOG_ERROR("打开 /proc 目录失败: {}", strerror(errno));
@@ -269,12 +199,19 @@ std::vector<pid_t> find_pid_by_package_name(const std::string& package_name)
     if (pid <= 0) continue;
 
     // 读取 /proc/[pid]/cmdline
-    auto cmdline_file = ProcFile::open(pid, ProcFileType::CMDLINE);
+    auto cmdline_file = Base::File::open(fmt::format("/proc/{}/cmdline", pid));
     if (cmdline_file && cmdline_file->is_open()) 
     {
-      std::string cmdline = cmdline_file->read_all();
+      std::vector<char> cmdline_data = cmdline_file->read_all();
       // cmdline 以 '\0' 分隔参数, 替换为空格方便匹配
-      std::replace(cmdline.begin(), cmdline.end(), '\0', ' ');
+      std::string cmdline;
+      for (char ch : cmdline_data)
+      {
+        if (ch == '\0')
+          cmdline += ' ';
+        else
+          cmdline += ch;
+      }
       if (Utils::contains_string(cmdline, package_name, false)) 
       {
         match_pids.push_back(pid);
@@ -292,7 +229,7 @@ std::vector<pid_t> find_pid_by_package_name(const std::string& package_name)
   return match_pids;
 }
 
-std::optional<std::string> find_package_name_by_pid(pid_t pid)
+std::optional<std::string> PROCHelper::find_package_name_by_pid(pid_t pid)
 {
   if (pid <= 0) 
   {
@@ -300,18 +237,33 @@ std::optional<std::string> find_package_name_by_pid(pid_t pid)
     return std::nullopt;
   }
 
-  auto cmdline_file = ProcFile::open(pid, ProcFileType::CMDLINE);
+  auto cmdline_file = Base::File::open(fmt::format("/proc/{}/cmdline", pid));
   if (cmdline_file && cmdline_file->is_open()) 
   {
-    std::string cmdline = cmdline_file->read_all();
+    std::vector<char> cmdline_data = cmdline_file->read_all();
+    // cmdline 以 '\0' 分隔参数, 替换为空格方便匹配
+    std::string cmdline;
+    for (char ch : cmdline_data)
+    {
+      if (ch == '\0')
+        cmdline += ' ';
+      else
+        cmdline += ch;
+    }
+    LOG_DEBUG("读取到的 cmdline: {}", cmdline);
+
     if (!cmdline.empty()) 
     {
-      LOG_DEBUG("读取到原始的 cmdline: {}", cmdline);
-      size_t null_pos = cmdline.find('\0');
-      if (null_pos != std::string::npos) 
-        cmdline = cmdline.substr(0, null_pos);
-
-      return cmdline;
+      // 直接返回 cmdline 第一项
+      std::string package_name;
+      for (char ch : cmdline_data)
+      {
+        if (ch == '\0')
+          break;
+        else
+          package_name += ch;
+      }
+      return package_name;
     }
     else  
     {
@@ -326,97 +278,57 @@ std::optional<std::string> find_package_name_by_pid(pid_t pid)
   }
 }
 
-// 回去进程所有 pid
-std::vector<pid_t> get_thread_ids(pid_t pid)
+std::unordered_map<std::string, std::string> PROCHelper::parse_status(pid_t pid)
 {
-  std::vector<pid_t> tids;
-
-  std::optional<ProcFile> task_file = ProcFile::open(pid, ProcFileType::TASK);
-  if (!task_file || !task_file->is_open()) 
-  {
-    LOG_ERROR("解析进程状态失败：无法打开/proc/{}/task", pid);
-    return tids;
-  }
-
-  std::vector<dirent*> entrys = task_file.value().list_entries();
-
-  for (const auto entry : entrys)
-  {
-    if (entry->d_type == DT_DIR)
-    {
-      // 检查目录是否全为数字
-      bool is_numeric = true;
-      for (int i = 0; entry->d_name[i] != '\0'; ++i)
-      {
-        if (!isdigit(entry->d_name[i]))
-        {
-          is_numeric = false;
-          break;
-        }
-      }
-
-      if (is_numeric && strlen(entry->d_name) > 0)
-      {
-        tids.push_back(static_cast<pid_t>(std::stoi(entry->d_name)));
-      }
-    }
-  }
-
-  // 编译器会自动进行 RVO(返回值优化), 加不加 std::move 都行
-  return std::move(tids); 
-}
-
-const char process_state_to_char(ProcessState state) 
-{
-  auto it = STATE_TO_CHAR.find(state);
-  return (it != STATE_TO_CHAR.end()) ? it->second : '?';
-}
-
-ProcessState char_to_process_state(const char state)
-{
-  auto it = CHAR_TO_STATE.find(state);
-  return (it != CHAR_TO_STATE.end()) ? it->second : ProcessState::UNKNOWN;
-}
-
-ProcessState parse_process_state(pid_t pid)
-{
-  // 校验PID有效性
-  if (pid <= 0) 
-  {
-    LOG_WARNING("解析进程状态失败: 无效PID({})", pid);
-    return ProcessState::UNKNOWN;
-  }
-
-  auto status_file = ProcFile::open(pid, ProcFileType::STATUS);
+  auto status_file = Base::File::open(fmt::format("/proc/{}/status", pid));
   if (!status_file || !status_file->is_open()) 
   {
-    LOG_WARNING("解析进程状态失败：无法打开/proc/{}/status", pid);
-    return ProcessState::UNKNOWN;
+    LOG_ERROR("解析进程状态失败：无法打开/proc/{}/status", pid);
+    return {};
   }
 
-  // 按行读取 status 文件内容, 逐行匹配 State 字段
+  std::unordered_map<std::string, std::string> status_map;
+
   std::vector<std::string> lines = status_file->read_lines();
   for (const std::string& line : lines) 
   {
-    size_t state_pos = line.find("State:");
-    if (state_pos == std::string::npos) continue;
+    size_t colon_pos = line.find(':');
+    if (colon_pos == std::string::npos) continue;
 
-    std::string state_part = line.substr(state_pos + 6); // "State:"共6个字符
-    state_part.erase(0, state_part.find_first_not_of(" \t")); // 去除前缀空格
+    std::string key = line.substr(0, colon_pos);
+    std::string value = line.substr(colon_pos + 1);
 
-    if (state_part.empty()) 
-    {
-      LOG_WARNING("解析进程状态失败: PID({})的 State 字段无有效内容", pid);
-      return ProcessState::UNKNOWN;
-    }
-    char state_char = std::toupper(static_cast<unsigned char>(state_part[0]));
-
-    return char_to_process_state(state_char);
+    // 去除前缀和后缀空格
+    key = Utils::trim(key);
+    value = Utils::trim(value);
+    status_map[key] = value;
   }
 
-  // 未找到 State 字段
-  LOG_WARNING("解析进程状态失败: PID({})的 status 文件无 State 字段", pid);
-  return ProcessState::UNKNOWN;
+  return status_map;
+}
+
+char PROCHelper::get_process_state_char(pid_t pid)
+{
+  if (pid <= 0) 
+  {
+    LOG_ERROR("解析进程状态失败: 无效PID({})", pid);
+    return '?';
+  }
+
+  auto status_map = parse_status(pid);
+  auto it = status_map.find("State");
+  if (it == status_map.end() || it->second.empty())
+  {
+    LOG_ERROR("解析进程状态失败: PID({})的 status 文件无 State 字段", pid);
+    return '?'; 
+  }
+
+  return static_cast<unsigned char>(it->second[0]);
+}
+
+ProcessState PROCHelper::get_process_state(pid_t pid)
+{
+  return char_to_process_state(get_process_state_char(pid));
 }
 
 bool PSHelper::parse_single_line(std::string line, PSItem& item)
@@ -435,7 +347,7 @@ bool PSHelper::parse_single_line(std::string line, PSItem& item)
   item.rss = std::stoull(tokens[4]);
   item.wchan = tokens[5];
   item.addr = tokens[6];
-  item.state = char_to_process_state(tokens[7][0]);
+  item.state = PROCHelper::get_instance().char_to_process_state(tokens[7][0]);
   for (size_t i = 8; i < tokens.size(); ++i)
   {
     if (i > 8) item.name += " ";

@@ -13,6 +13,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include "memory_control.hpp"
+#include "file.hpp"
 #include "log.hpp"
 #include "utils.hpp"
 #include "process.hpp"
@@ -76,7 +77,7 @@ std::vector<MemoryRegion> MemoryControl::get_memory_regions(pid_t pid)
 {
   std::vector<MemoryRegion> regions;
 
-  std::optional<Process::ProcFile> maps_file = Process::ProcFile::open(pid, Process::ProcFileType::MAPS);
+  std::optional<Base::File> maps_file = Base::File::open(fmt::format("/proc/{}/maps", pid));
   if (!maps_file || !maps_file->is_open()) 
   {
     LOG_ERROR("解析进程状态失败: 无法打开/proc/{}/maps", pid);
