@@ -8,9 +8,6 @@
 #include "utils.hpp"
 
 
-// todo: 参数检查
-
-
 void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
 {
   // 返回数据或者接受数据信息都要用 json 字符串, 如果没有信息可以穿空或者提示字符串
@@ -20,6 +17,7 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     nlohmann::json json_data = nlohmann::json::parse(params);
     if (!json_data.contains("target") || !json_data["target"].is_string())
       return Base::Status::fail("attach 需要 target 参数, 且必须是字符串");
+
     std::string target = json_data["target"];
     return debugger.attach(target);
   });
@@ -29,6 +27,7 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     nlohmann::json json_data = nlohmann::json::parse(params);
     if (!json_data.contains("target") || !json_data["target"].is_string())
       return Base::Status::fail("launch 需要 target 参数, 且必须是字符串");
+
     std::string program = json_data["target"];
     return debugger.launch(program);
   });
@@ -66,6 +65,10 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("read_memory", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("address") || !json_data.contains("size") 
+    || !json_data["address"].is_number() || !json_data["size"].is_number())
+      return Base::Status::fail("read_memory 需要 address 和 size 参数, 且必须是数字");
+
     uint64_t address = json_data["address"];
     size_t size = json_data["size"];
     std::vector<char> buffer(size);
@@ -86,8 +89,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("write_memory", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
-    if (!json_data.contains("address") || !json_data.contains("data")) 
-      return Base::Status::fail("缺少参数: address / data");
+    if (!json_data.contains("address") || !json_data.contains("data") 
+    || !json_data["address"].is_number() || !json_data["data"].is_array())
+      return Base::Status::fail("write_memory 需要 address 和 data 参数, 且 address 必须是数字, data 必须是数组");
 
     uint64_t address = json_data["address"];
     std::vector<uint8_t> buffer = json_data["data"].get<std::vector<uint8_t>>();
@@ -137,6 +141,10 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("set_breakpoint", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("type") || !json_data.contains("address") 
+    || !json_data["type"].is_number() || !json_data["address"].is_number())
+      return Base::Status::fail("set_breakpoint 需要 type 和 address 参数, 且必须是数字");
+
     int type = json_data["type"];
     uint64_t address = json_data["address"];
     int breakpoint_id;
@@ -146,6 +154,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("remove_breakpoint", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("breakpoint_id") || !json_data["breakpoint_id"].is_number())
+      return Base::Status::fail("remove_breakpoint 需要 breakpoint_id 参数, 且必须是数字");
+
     int breakpoint_id = json_data["breakpoint_id"];
     return debugger.remove_breakpoint(breakpoint_id);
   });
@@ -153,6 +164,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("enable_breakpoint", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("breakpoint_id") || !json_data["breakpoint_id"].is_number())
+      return Base::Status::fail("enable_breakpoint 需要 breakpoint_id 参数, 且必须是数字");
+
     int breakpoint_id = json_data["breakpoint_id"];
     return debugger.enable_breakpoint(breakpoint_id);
   });
@@ -160,6 +174,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("disable_breakpoint", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("breakpoint_id") || !json_data["breakpoint_id"].is_number())
+      return Base::Status::fail("disable_breakpoint 需要 breakpoint_id 参数, 且必须是数字");
+
     int breakpoint_id = json_data["breakpoint_id"];
     return debugger.disable_breakpoint(breakpoint_id);
   });
@@ -217,6 +234,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     nlohmann::json json_data = nlohmann::json::parse(params);
     if (json_data.contains("address") && !json_data["address"].is_null())
     {
+      if (!json_data["address"].is_number())
+        return Base::Status::fail("get_breakpoint 的 address 参数必须是数字");
+
       uint64_t address = json_data["address"];
       Core::Breakpoint breakpoint;
       Base::Status s = debugger.get_breakpoint(address, breakpoint);
@@ -235,6 +255,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
     }
     else if (json_data.contains("breakpoint_id") && !json_data["breakpoint_id"].is_null())
     {
+      if (!json_data["breakpoint_id"].is_number())
+        return Base::Status::fail("get_breakpoint 的 breakpoint_id 参数必须是数字");
+
       int breakpoint_id = json_data["breakpoint_id"];
       Core::Breakpoint breakpoint;
       Base::Status s = debugger.get_breakpoint(breakpoint_id, breakpoint);
@@ -273,6 +296,9 @@ void acp_init(Base::RPCServer& server, Core::DebuggerCore& debugger)
   server.register_handler("switch_thread", [&debugger](const std::string& params) -> Base::Status
   {
     nlohmann::json json_data = nlohmann::json::parse(params);
+    if (!json_data.contains("tid") || !json_data["tid"].is_number())
+      return Base::Status::fail("switch_thread 需要 tid 参数, 且必须是数字");
+
     pid_t tid = json_data["tid"];
     return debugger.switch_thread(tid);
   });

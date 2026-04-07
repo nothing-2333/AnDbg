@@ -19,6 +19,7 @@ namespace Core
 // todo: 为所有接口加上检查
 // todo: 只有当前线程处于暂停状态才能执行一些接口, 需要做出检查
 // todo: 添加状态的维护
+// todo: 修复 launch
 
 class DebuggerCore
 {
