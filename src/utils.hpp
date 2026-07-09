@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <optional>
 
 #include "log.hpp"
 
