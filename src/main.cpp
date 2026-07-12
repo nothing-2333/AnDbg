@@ -338,6 +338,6 @@ int main()
   Core::DebuggerCore debugger;
   Base::RPCServer server;
   acp_init(server, debugger);
-  server.start(5073);
+  server.start(0);
   return 0;
 }

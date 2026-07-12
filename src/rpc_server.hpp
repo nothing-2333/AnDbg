@@ -43,7 +43,7 @@ public:
   RPCServer& operator=(const RPCServer&) = delete;
 
   // 启动服务器
-  bool start(uint16_t port=5073);
+  bool start(int port=0);
 
   // 停止服务器
   void stop();

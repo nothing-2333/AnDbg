@@ -74,7 +74,7 @@ void RPCServer::register_handler(const std::string& command, Handler handler)
   handlers_[command] = handler;
 }
 
-bool RPCServer::start(uint16_t port)
+bool RPCServer::start(int port)
 {
   if (running_)
   {
@@ -98,7 +98,7 @@ bool RPCServer::start(uint16_t port)
     return false;
   }
 
-  // 绑定端口
+  // 绑定端口, port == 0 时由系统自动分配空闲端口
   sockaddr_in server_addr{};
   server_addr.sin_family = AF_INET;           // ipv4
   server_addr.sin_addr.s_addr = INADDR_ANY;   // 监听所有接口
@@ -110,20 +110,41 @@ bool RPCServer::start(uint16_t port)
     return false;
   }
 
+  // 如果传入端口为 0, 通过 getsockname 获取系统实际分配的端口
+  if (port == 0)
+  {
+    sockaddr_in bound_addr{};
+    socklen_t addr_len = sizeof(bound_addr);
+    if (getsockname(server_fd_, (struct sockaddr*)&bound_addr, &addr_len) == 0)
+    {
+      port_ = ntohs(bound_addr.sin_port);
+      LOG_DEBUG("系统自动分配端口: {}", port_);
+    }
+    else
+    {
+      LOG_ERROR("获取自动分配的端口失败: {}", strerror(errno));
+      safe_close_fd(server_fd_);
+      return false;
+    }
+  }
+  else
+  {
+    port_ = port;
+  }
+
   // 监听
   if (listen(server_fd_, 1) < 0)
   {
-    LOG_ERROR("监听端口 {} 失败: {}", port, strerror(errno));
+    LOG_ERROR("监听端口 {} 失败: {}", port_, strerror(errno));
     safe_close_fd(server_fd_);
     return false;
   }
 
-  port_ = port;
   running_ = true;
-  server_loop();
-  // server_thread_ = std::thread(&RPCServer::server_loop, this);
 
-  LOG_DEBUG("RPC 服务器启动, 端口 {}", port);
+  LOG_DEBUG("RPC 服务器启动, 端口 {}", port_);
+  server_loop();
+
   return true;
 }
 
